@@ -1,3 +1,6 @@
+############################
+## Future Autumn Projections
+
 # Define directory paths
 setwd(".../AutumnPhenology/AutumnPhenology_Data&Metadata/Data/")
 
@@ -7,7 +10,8 @@ library(tidyverse)
 library(caTools)
 
 # Define functions of Autumn phenology Models
-CDD = function(T_base, F_crit, data){  
+CDD.models = function(T_base, F_crit, data){  
+  
   # create forcing/chilling rate vector
   Rf = data$Tmini - T_base
   Rf[Rf > 0] = 0
@@ -34,10 +38,9 @@ CDD = function(T_base, F_crit, data){
     return(doy)
   })
   
-  # set export vector of predicted leaf.off dates
   return(doy)
 }
-TPM = function(P_base, a, b, F_crit, data){
+TPM.models = function(P_base, a, b, F_crit, data){
   # create forcing/chilling rate vector at the day level
   Rf = 1/(1+exp(a*(data$Tmini*data$Li-b)))
   
@@ -62,13 +65,11 @@ TPM = function(P_base, a, b, F_crit, data){
   # DOY of budburst criterium
   doy = apply(Rf,2, function(xt){
     doy = which(cumsum(xt) >= F_crit)[1]
-    return(doy)
   })
   
-  # set export vector of predicted leaf.off dates
   return(doy)
 }
-SecondGen_PIA_Models = function(par, predictor, data) {
+SecondGen_PIA.models = function(par, predictor, data) {
   # exit the routine as some parameters are missing
   if (length(par) != 5 & length(par) != 6){
     stop("model parameter(s) out of range (too many, too few)")
@@ -129,11 +130,9 @@ SecondGen_PIA_Models = function(par, predictor, data) {
     # predict date of leaf.off
     doy = apply(Rf,2, function(xt){
       doy = which(cumsum(xt[1:366]) >= c+d*xt[367]+e*xt[368])[1]
-      return(doy)
     }) 
   }
-  
-  # set export vector of predicted leaf.off dates
+
   return(doy)
 }
 
@@ -144,8 +143,7 @@ se <- function(x) sqrt(var(x)/length(x))
 model <- "M1" # AT, M1, PM1
 
 ##----------------------------------------
-# Import data
-##----------------------------------------
+## Import data
 
 # Future spring phenology
 future_spring.df <- fread(paste0("Future_SpringPhenology_soil_CO2_",model,".csv"))
@@ -235,7 +233,10 @@ for(sp in 1:length(species)) {
 }
 rm(index,data,pheno_sp.sub,sites,site,count,sp)
 
+
+##----------------------------------------
 ## Future projections
+
 # Initialize dataframe
 future_proj.df <- data.frame() 
 
@@ -262,27 +263,27 @@ for(sp in 1:length(species)) {
     
     ## Future leaf senescence dates (DoY.off)
     # CDD model
-    future_proj.sub$DoY.off_CDD  <- CDD(T_base=opt_pars.sub$Tbase_CDD, F_crit=opt_pars.sub$Fcrit_CDD, data=data.sub)
+    future_proj.sub$DoY.off_CDD  <- CDD.models(T_base=opt_pars.sub$Tbase_CDD, F_crit=opt_pars.sub$Fcrit_CDD, data=data.sub)
 
     # TPM model
-    future_proj.sub$DoY.off_TPM  <- TPM(P_base=opt_pars.sub$Pbase_TPM, a=opt_pars.sub$a_TPM, b=opt_pars.sub$b_TPM, F_crit=opt_pars.sub$Fcrit_TPM, data=data.sub)
+    future_proj.sub$DoY.off_TPM  <- TPM.models(P_base=opt_pars.sub$Pbase_TPM, a=opt_pars.sub$a_TPM, b=opt_pars.sub$b_TPM, F_crit=opt_pars.sub$Fcrit_TPM, data=data.sub)
 
     # SIAM model
     pars_SIAM = opt_pars.sub[,grep("_SIAM",colnames(opt_pars.sub))]
-    future_proj.sub$DoY.off_SIAM  <- SecondGen_PIA_Models(par=pars_SIAM, predictor=data.sub$doy, data=data.sub)
+    future_proj.sub$DoY.off_SIAM  <- SecondGen_PIA.models(par=pars_SIAM, predictor=data.sub$doy, data=data.sub)
 
     # TPDM model
     pars_TPDM = opt_pars.sub[,grep("_TPDM",colnames(opt_pars.sub))]
-    future_proj.sub$DoY.off_TPDM  <- SecondGen_PIA_Models(par=pars_TPDM, predictor=c(preds.sub$GST,preds.sub$RD_summer), data=data.sub)
+    future_proj.sub$DoY.off_TPDM  <- SecondGen_PIA.models(par=pars_TPDM, predictor=c(preds.sub$GST,preds.sub$RD_summer), data=data.sub)
 
     # PIA_gsi model
     pars_PIA_gsi = opt_pars.sub[,grep("_PIA_gsi",colnames(opt_pars.sub))]
-    future_proj.sub$DoY.off_PIA_gsi <- SecondGen_PIA_Models(par=pars_PIA_gsi, predictor=preds.sub$cGSI, data=data.sub)
+    future_proj.sub$DoY.off_PIA_gsi <- SecondGen_PIA.models(par=pars_PIA_gsi, predictor=preds.sub$cGSI, data=data.sub)
 
     # PIA+ model
     `pars_PIA+` = opt_pars.sub[,grep("_PIA+",colnames(opt_pars.sub))]
     `pars_PIA+` = `pars_PIA+`[11:15]
-    future_proj.sub$`DoY.off_PIA+`  <- SecondGen_PIA_Models(par=`pars_PIA+`, predictor=preds.sub$cA_tot, data=data.sub)
+    future_proj.sub$`DoY.off_PIA+`  <- SecondGen_PIA.models(par=`pars_PIA+`, predictor=preds.sub$cA_tot, data=data.sub)
 
     ## Future Growing Season Length (GSL)
     future_proj.sub$GSL_CDD <- future_proj.sub$DoY.off_CDD - data.sub$doy
@@ -301,8 +302,9 @@ for(sp in 1:length(species)) {
 }
 write.table(future_proj.df,"ModelAnalysis_5_FutureAutumnProjections.csv",sep=";",row.names = F)
 
-###############
-## PLOT FIGURES
+
+##----------------------------------------
+## Plot
 
 # Define model names 
 model.names   <- c("CDD","TPM","SIAM","TPDM","PIA_gsi","PIA+")
@@ -311,7 +313,6 @@ model.names   <- c("CDD","TPM","SIAM","TPDM","PIA_gsi","PIA+")
 future.df <- fread("ModelAnalysis_5_FutureAutumnProjections.csv") 
 future.df <- future.df %>% 
   as.data.frame()
-
 doyoff.df <- future.df[,grep("DoY.off",colnames(future.df))]
 GSL.df <- future.df[,grep("GSL",colnames(future.df))]
 future_doyoff.df <- doyoff.df %>% 
@@ -409,8 +410,8 @@ fig_3c
 
 
 ## FIGURE 3B
-## Estimated delays in leaf senescence by the end of the 21st century (2080-2100) 
-## compared to the average senescence dates between 1990-2010
+# Estimated delays in leaf senescence by the end of the 21st century (2080-2100) 
+# compared to the average senescence dates between 1990-2010
 
 # Select future senescence dates/growing season length (2080-2100 range)
 fut_DoYs <- doyoff.df %>% 
@@ -560,8 +561,8 @@ fig_3d <- ggplot(data=change_GSL, aes(x=Model, y=change_ts)) +
 fig_3d
 
 
-################################
-## EXTENDED DATA FIGURES
+## EXTENDED DATA FIGURE 3
+# Future projections of autumn senescence dates for six Central European species
 
 # Calculate average senescence date/growing season length per Species
 future_doyoff.sp <- doyoff.df %>% 
@@ -661,8 +662,8 @@ ext_fig_3b <- ggplot(future_GSL.sp, aes(x=YEAR, y=round(roll_GSL), colour=Specie
 ext_fig_3b
 
 
-#########################
 ## EXTENDED DATA FIGURE 4
+# Future delays in autumn senescence dates (a) and increases in growing season length (b) for six Central European species
 
 # Calculate senescence delay/growing season length change per species
 delays_sp <- futpast_DoYs %>% 
@@ -739,8 +740,8 @@ ext_fig_4b <- ggplot(data=change_sp, aes(x=Species, y=change_sp, fill=Model)) +
 ext_fig_4b
 
 
-########################
-# EXTENDED DATA FIGURE 5
+## EXTENDED DATA FIGURE 5
+# Comparison of seasonal activity between the present (1990-2010) and the future (2080-2100)
 
 # Import past (1990-2010) and future (2080-2100) daily photosynthesis
 all_photo.days <- fread("DailyPhotosynthesis_past_future.csv")

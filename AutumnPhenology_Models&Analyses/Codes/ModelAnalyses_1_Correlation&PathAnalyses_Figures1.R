@@ -1,13 +1,12 @@
+################################
+## Correlation and Path Analyses
+
+## From the text:
+# See Materials and Methods
+# Correlation and path analyses
+
 # Define directory paths
 setwd(".../AutumnPhenology/AutumnPhenology_Data&Metadata/Data/")
-
-##----------------------------------------
-## EXTENDED DATA FIGURE 1
-## EXTENDED DATA FIGURE 2
-## EXTENDED DATA FIGURE 3
-## EXTENDED DATA FIGURE 4
-## FIGURE 1A - 1B - 1C
-## Correlation and Path Analyses
 
 # Load libraries
 library(data.table)
@@ -18,11 +17,10 @@ se <- function(x) sqrt(var(x)/length(x))
 
 # Import data
 variables <- fread("DataMeta_3_Drivers.csv")
-colnames(variables)
+
 
 ##----------------------------------------
 ## Explore correlations among variables
-## EXTENDED DATA FIGURE 1
 library(ggcorrplot)
 
 # DoY_off = autumn leaf senescence dates vs.
@@ -67,10 +65,6 @@ corr_plot
 
 ##----------------------------------------
 ## (Partial) Correlations
-## EXTENDED DATA FIGURES 2A - 2B - 3 
-
-#######################
-## Partial correlations 
 library(ppcor)
 
 # DoY_off = autumn leaf senescence dates vs.
@@ -196,7 +190,6 @@ ext_fig_2a <- ggplot(data = meanpcorr_per_species, aes(x=Species, y=mean_values,
 ext_fig_2a
 
 
-#######################
 ## Pearson correlations
 # DoY_off = autumn leaf senescence dates vs.
 
@@ -286,111 +279,6 @@ ext_fig_2b <- ggplot(data=meancorr_per_species, aes(x=Species, y=mean_values, fi
 ext_fig_2b
 
 
-#######################
-## Pearson correlations
-# cA_tot = photosynthesis activity accounting for water deficit vs.
-
-# DoY_out = spring leaf-out dates (Fu et al. 2014)
-# temp_GS = average temperature during the growing season (Xie et al. 2018; Liu et al. 2019)
-# temp_aut2 = average minimum temperature during autumn (2 months before leaf senescence)
-# RD_summer = rainy days during summer (water supply during the driest season)
-
-# Time-series level
-corr_photosyn.tm <- variables %>%
-  group_by(timeseries) %>% 
-  summarise(photosyn_tempGS = cor(cA_tot, temp_GS),
-            photosyn_RDsummer = cor(cA_tot, RD_summer),
-            photosyn_tempaut2 = cor(cA_tot, temp_aut2),
-            photosyn_DoYout = cor(cA_tot, DoY_out))
-
-# Average values across species
-Across_species <- corr_photosyn.tm %>% 
-  summarise(`Summer temperature` = mean(photosyn_tempGS),
-            `Summer precipitation` = mean(photosyn_RDsummer),
-            `Autumn temperature` = mean(photosyn_tempaut2),
-            `Spring leaf-out` = mean(photosyn_DoYout)) %>% 
-  add_column(Species = "Across species") %>% 
-  pivot_longer(-Species,names_to="predictors",values_to = "mean_values")
-
-# Species-specific time-series level
-corr_photosyn.sp <- variables %>%
-  group_by(Species, timeseries) %>% 
-  summarise(photosyn_tempGS = cor(cA_tot, temp_GS),
-            photosyn_RDsummer = cor(cA_tot, RD_summer),
-            photosyn_tempaut2 = cor(cA_tot, temp_aut2),
-            photosyn_DoYout = cor(cA_tot, DoY_out))
-
-# Average values per species
-data_plot <- corr_photosyn.sp %>%
-  summarise(`Summer temperature` = mean(photosyn_tempGS),
-            `Summer precipitation` = mean(photosyn_RDsummer),
-            `Autumn temperature` = mean(photosyn_tempaut2),
-            `Spring leaf-out` = mean(photosyn_DoYout)) %>% 
-  pivot_longer(cols=-Species,names_to="predictors",values_to = "mean_values") %>% 
-  # Add average values across species
-  rbind(Across_species,.)
-
-# Standard errors per species
-SE_per_species <- corr_photosyn.sp %>% 
-  group_by(Species) %>%
-  summarise(`Summer temperature` = se(photosyn_tempGS),
-            `Summer precipitation` = se(photosyn_RDsummer),
-            `Autumn temperature` = se(photosyn_tempaut2),
-            `Spring leaf-out` = se(photosyn_DoYout)) %>%
-  pivot_longer(cols=2:5,names_to="predictors",values_to="SE_values")
-
-# Standard errors across species
-SE_across_species <- corr_photosyn.tm %>% 
-  summarise(`Summer temperature` = se(photosyn_tempGS),
-            `Summer precipitation` = se(photosyn_RDsummer),
-            `Autumn temperature` = se(photosyn_tempaut2),
-            `Spring leaf-out` = se(photosyn_DoYout)) %>% 
-  add_column(Species = "Across species") %>% 
-  pivot_longer(-Species,names_to="predictors",values_to = "SE_values")
-SE <- rbind(SE_across_species,SE_per_species)
-data_plot$SE_values <- SE$SE_values
-
-# Set the order of predictors to plot
-data_plot$predictors <- factor(data_plot$predictors, levels=c("Summer temperature",
-                                                              "Summer precipitation",
-                                                              "Autumn temperature",
-                                                              "Spring leaf-out"))
-
-# Plot 
-# EXTENDED DATA FIGURE 3
-ext_fig_3 <-  ggplot(data_plot, aes(x=Species,y=mean_values,fill=predictors)) +
-  geom_bar(position = position_dodge(preserve = "single"),
-           stat="identity") + 
-  geom_errorbar(aes(ymin=mean_values-SE_values, ymax=mean_values+SE_values),
-                size=.3,    
-                width=.5,
-                position = position_dodge(width = 0.9, preserve = "single")) +
-  scale_fill_manual(values=rev(paletteSpectral[1:4])) +
-  labs(y="Correlation coefficient") +
-  coord_cartesian(ylim=c(-0.10,0.375)) +
-  scale_y_continuous(breaks = c(0,0.15,0.3)) +
-  geom_hline(aes(yintercept=0), size=.3) +
-  theme(aspect.ratio = 1, 
-        axis.title.y=element_text(size=8, vjust=1),
-        axis.text.y=element_text(size=6),
-        axis.ticks.y=element_line(size=.3),
-        axis.title.x=element_blank(),
-        axis.text.x=element_text(angle=45, hjust=1, size=6),
-        axis.ticks.x=element_line(size=.3),
-        legend.title=element_blank(),
-        legend.text=element_text(size=6),
-        legend.key.size=unit(0.3,"cm"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_rect(fill = 'white', colour = 'black')
-  )
-ext_fig_3
-
-
-##----------------------------------------
-## FIGURE 1A - 1B - 1C
-
-####################
 ## Linear regression
 # DoY_off = autumn leaf senescence dates vs.
 # cA_tot = photosynthesis activity accounting for water deficit
@@ -466,7 +354,6 @@ fig_1a <- fig_1a + geom_text(data=r2s,
 fig_1a
 
 
-#######################
 ## Pearson correlations
 # DoY_off = autumn leaf senescence dates vs.
 
@@ -551,7 +438,6 @@ fig_1b <- ggplot(data=meancorr_across_timeseries, aes(x=predictors, y=mean_value
 fig_1b
 
 
-################
 ## Path analysis 
 
 # DoY_off = autumn leaf senescence dates 

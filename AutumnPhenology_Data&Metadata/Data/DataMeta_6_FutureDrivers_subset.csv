@@ -1,4 +1,4 @@
-timeseries;Species;PEP_ID;YEAR;GST;RD_summer;cGSI;cA_tot
+timeseries;Species;PEP_ID;YEAR;temp_GS;RD_summer;cGSI;cA_tot
 1_Fagus sylvatica;Fagus sylvatica;1;2016;14.11858;34;96.5141034;3421.854989
 1_Fagus sylvatica;Fagus sylvatica;1;2017;14.21305;34;92.25896587;3776.741341
 1_Fagus sylvatica;Fagus sylvatica;1;2018;14.75628;41;102.3351394;4026.507015

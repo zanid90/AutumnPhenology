@@ -1,3 +1,10 @@
+###########################################################
+## Future Climate and Soil Extraction & Drivers Calculation
+
+# See Materials and Methods:
+# Climate and soil data sets
+# Summary of seasonal photosynthesis calculation
+
 # Define directory paths
 setwd(".../AutumnPhenology/AutumnPhenology_Data&Metadata/Data/")
 
@@ -42,6 +49,10 @@ library(sp)
 library(raster)
 library(soiltexture)
 library(rgdal)
+
+# Soil images provided by ISRIC (World Soil Information)
+# SoilGrids
+# https://maps.isric.org/
 Soils_coarse <- raster("SoilTexture_0cm.tif") # Coarse Fragments Volumetric in % at surface
 Soils_fine <- raster("ClayContent_0cm.tif") # Fine "Clay" content Mass Fraction in % at surface
 
@@ -443,10 +454,10 @@ for(ty in timeseries_year) {
     GS_interval <- DoY_out:endGS_site
     
     # Calculate the mean temperature of the growing season, GST
-    GST <- T_mean.sub %>% 
+    temp_GS <- T_mean.sub %>% 
       select(as.character(1:366)) %>% 
       select(as.character(GS_interval))
-    factors.sub$GST <- mean(as.numeric(GST))
+    factors.sub$temp_GS <- mean(as.numeric(temp_GS))
 
     # Calculate RD_summer: number of rainy days (i.e. >2mm of precipitation)
     # during the driest season
@@ -471,18 +482,8 @@ for(ty in timeseries_year) {
   }
 }
 
-# Data wrangling 
-Factors.df$PEP_ID <- sapply(strsplit(Factors.df$ts_yr, "_"), function(x) x[[1]])
-Factors.df$YEAR <- sapply(strsplit(Factors.df$ts_yr, "_"), function(x) x[[2]])
-Factors.df <- Factors.df %>% 
-  arrange(-desc(timeseries))
 
-# Export dataset
-write.table(Factors.df,"Future_GST_RD.csv",sep=";",row.names=FALSE)
-print("---the Future GST and RD dataset has been exported---")
-
-
-##---------------
+##----------------------------------------
 ## Calculate cGSI
 
 # Import datasets
@@ -691,12 +692,8 @@ for(ty in timeseries_year) {
   }
 }
 
-# Export dataset
-write.table(GSI,"FuturecGSI.csv",sep=";",row.names=FALSE)
-print("---the Future Cumulative GSIs dataset has been exported---")
 
-
-##-----------------
+##----------------------------------------
 ## Calculate cA_tot
 
 # Import datasets
@@ -1116,7 +1113,36 @@ for(ty in timeseries_year) {
 }
 
 # Export dataset
-write.table(Photosyn,"FuturePhotosynthesis.csv",sep=";",row.names=FALSE)
-print("---the Future Photosynthesis rate_water stress dataset has been exported---")
 write.table(photosynthesis_daily.cum,"FuturePhotosynthesis_daily.csv",sep=";",row.names=FALSE)
 print("---the Future daily Photosynthesis rate_water stress dataset has been exported---")
+
+
+##----------------------------------------
+## Dataset of Future Autumn phenology drivers
+
+# Add time-spatial labels
+pheno.df <- fread(paste0("Future_SpringPhenology_soil_CO2_",model,".csv"))
+drivers.df <- pheno.df %>% 
+  select(timeseries,Species,PEP_ID,YEAR)
+
+# Add drivers of autumn phenology
+drivers.df$temp_GS <- Factors.df$temp_GS
+drivers.df$RD_summer <- Factors.df$RD_summer
+drivers.df$cGSI <- GSI$cGSI
+drivers.df$cA_tot <- photosynthesis.cum$cA_totw
+
+# Data wrangling
+drivers.df <- drivers.df %>% 
+  select(timeseries, everything()) %>% 
+  arrange(-desc(timeseries))
+
+# Export dataset
+write.table(drivers.df,"DataMeta_6_FutureDrivers.csv",sep=";",row.names=FALSE)
+
+
+##----------------------------------------
+## References
+
+# Haxeltine, A., & Prentice, I. C. BIOME3: An equilibrium terrestrial biosphere model based on ecophysiological constraints, resource availability, and competition among plant functional types. Glob Biogeochem Cy. 10, 693-709 (1996).
+# Jolly, W. M., Nemani, R. & Running, S. W. A generalized, bioclimatic index to predict foliar phenology in response to climate. Glob. Chang. Biol. 11, 619-632 (2005).
+# Smith B., Prentice I. C., & Sykes M. T. Representation of vegetation dynamics in the modelling of terrestrial ecosystems: comparing two contrasting approaches within European climate space. Glob Ecol Biogeogr. 10, 621-37 (2001).

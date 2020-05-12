@@ -1,3 +1,10 @@
+####################################################
+## Climate and Soil Extraction & Drivers Calculation
+
+# See Materials and Methods:
+# Climate and soil data sets
+# Summary of seasonal photosynthesis calculation
+
 # Define directory paths
 setwd(".../AutumnPhenology/AutumnPhenology_Data&Metadata/Data/")
 
@@ -48,6 +55,10 @@ library(sp)
 library(raster)
 library(soiltexture)
 library(rgdal)
+
+# Soil images provided by ISRIC (World Soil Information)
+# SoilGrids
+# https://maps.isric.org/
 Soils_coarse <- raster("SoilTexture_0cm.tif") # Coarse Fragments Volumetric in % at surface
 Soils_fine <- raster("ClayContent_0cm.tif") # Fine "Clay" content Mass Fraction in % at surface
 
@@ -176,7 +187,7 @@ rm(list=setdiff(ls(), c("pheno_soil_co2.df", "model","main_folder")))
 
 
 ##----------------------------------------
-## Extract future climatic variables
+## Extract climatic variables
 # 1. NASA/GLDAS/V020/NOAH/G025/T3H --> Data availability (time): Jan 1, 1948 - Dec 31, 2010
 # 2. NASA/GLDAS/V021/NOAH/G025/T3H --> Data availability (time): Jan 1, 2000 - Feb 14, 2019 
 
@@ -480,12 +491,8 @@ for(ty in timeseries_year) {
   }
 }
 
-# Export dataset
-write.table(Factors.df,"ClimaticDrivers.csv",sep=";",row.names=FALSE)
-print("---the Climatic drivers dataset has been exported---")
 
-
-##---------------
+##----------------------------------------
 ## Calculate cGSI
 # cGSI = cumulative growing season index
 
@@ -580,6 +587,7 @@ VPD.fun <- function(VPD, VPD_min, VPD_max) {
 # Initialize dataframes
 GSI <- data.frame()
 
+# Get all time-points
 timeseries_year <- unique(DataList[[4]]$ts_yr)
 
 for(ty in timeseries_year) {
@@ -659,7 +667,7 @@ for(ty in timeseries_year) {
       # e_a: derived from dewpoint temperature [kPa]
       e_a <- degC_to_kPa.fun(temp=Tmin[,day])
       
-      # VPD: Vapour pressure deficit [kPA]
+      # VPD: Vapour pressure deficit [kPa]
       VPD <- e_s-e_a
       iVPD <- VPD.fun(VPD, VPD_min, VPD_max)
       
@@ -673,12 +681,12 @@ for(ty in timeseries_year) {
       iGSI <- as.numeric(iVPD*iOpt*iPhoto)
       
       # Add to the cumulative cGSI
-      iGSI_year         <- c(iGSI_year,iGSI)
-      cGSI              <- sum(iGSI_year)
+      iGSI_year <- c(iGSI_year,iGSI)
+      cGSI <- sum(iGSI_year)
     }
     
     # Store results
-    GSI.sub$cGSI       <- cGSI
+    GSI.sub$cGSI <- cGSI
     
     # Bind final datasets
     GSI <- rbind(GSI,GSI.sub)
@@ -686,12 +694,8 @@ for(ty in timeseries_year) {
   }
 }
 
-# Export dataset
-write.table(GSI,"FuturecGSI.csv",sep=";",row.names=FALSE)
-print("---the Future Cumulative GSIs dataset has been exported---")
 
-
-##-------------------------
+##----------------------------------------
 ## Calculate photosynthesis
 # cA_tot = cumulative net photosynthetic rate during the growing season, including and excluding a water deficit index
 # cA_tot- = cumulative net photosynthetic rate during the growing season, excluding and excluding a water deficit index
@@ -700,7 +704,7 @@ print("---the Future Cumulative GSIs dataset has been exported---")
 # DataList[[1]] = net short-wave radiation [W/m^2]
 # DataList[[2]] = net long-wave radiation [W/m^2]
 # DataList[[3]] = precipitation [mm]
-# DataList[[4]] = mean temperature [�C]
+# DataList[[4]] = mean temperature [degC]
 # DataList[[5]] = photoperiod [hours] 
 # DataList[[6]] = phenology_soil_CO2 data [DAY for leaf.out, pCO2 and soil parameters] --> pCO2 are monthly values
 
@@ -1114,5 +1118,62 @@ for(ty in timeseries_year) {
 }
 
 # Export dataset
-write.table(Photosyn,"FuturePhotosynthesis.csv",sep=";",row.names=FALSE)
-print("---the Future Photosynthesis rate_water stress dataset has been exported---")
+write.table(photosynthesis_daily.cum,"Photosynthesis_daily.csv",sep=";",row.names=FALSE)
+
+
+##----------------------------------------
+## Dataset of Autumn phenology drivers
+
+# Add coordinates
+stations <- fread("DataMeta_1_PhenologyObs_PEP725_Stations.csv")
+stations <- stations %>% 
+  select(PEP_ID,LON,LAT)
+
+# Add time-spatial labels
+pheno.df <- fread("DataMeta_2_PhenologyObs_PEP725_CleanData.csv")
+drivers.df <- pheno.df %>% 
+  filter(phenology == "leaf.out") %>% 
+  select(timeseries,PEP_ID,Species,YEAR)
+drivers.df <-  merge(drivers.df,stations,by="PEP_ID")
+
+# Add phenological observations
+DoY_off.df <- pheno.df %>% 
+  filter(phenology == "leaf.off") %>% 
+  select(DoY,mean_DoYoff)
+drivers.df$DoY_off <- DoY_out.df$DoY_off 
+DoY_out.df <- pheno.df %>% 
+  filter(phenology == "leaf.out") %>% 
+  select(DoY,mean_DoYout)
+drivers.df$DoY_out <- DoY_out.df$DoY_out
+drivers.df$autumn_anomaly <- DoY_off.df$DoY_off - DoY_off.df$mean_DoYoff
+drivers.df$spring_anomaly <- DoY_out.df$DoY_out - DoY_out.df$mean_DoYout
+
+# Add drivers of autumn phenology
+drivers.df$temp_GS <- Factors.df$temp_GS
+drivers.df$temp_aut2 <- Factors.df$temp_aut2
+drivers.df$temp_aut3 <- Factors.df$temp_aut3
+drivers.df$RD <- Factors.df$temp_RD
+drivers.df$RD_summer <- Factors.df$RD_summer
+drivers.df$HRD <- Factors.df$HRD
+drivers.df$HD35 <- Factors.df$HD35
+drivers.df$FD <- Factors.df$FD
+drivers.df$FD_spring <- Factors.df$FD_spring
+drivers.df$cGSI <- GSI$cGSI
+drivers.df$`cA_tot-w` <- photosynthesis.cum$cA_tot
+drivers.df$cA_tot <- photosynthesis.cum$cA_totw
+
+# Data wrangling
+drivers.df <- drivers.df %>% 
+  select(timeseries, everything()) %>% 
+  arrange(-desc(timeseries))
+
+# Export dataset
+write.table(drivers.df,"DataMeta_3_Drivers.csv",sep=";",row.names=FALSE)
+
+
+##----------------------------------------
+## References
+
+# Haxeltine, A., & Prentice, I. C. BIOME3: An equilibrium terrestrial biosphere model based on ecophysiological constraints, resource availability, and competition among plant functional types. Glob Biogeochem Cy. 10, 693-709 (1996).
+# Jolly, W. M., Nemani, R. & Running, S. W. A generalized, bioclimatic index to predict foliar phenology in response to climate. Glob. Chang. Biol. 11, 619-632 (2005).
+# Smith B., Prentice I. C., & Sykes M. T. Representation of vegetation dynamics in the modelling of terrestrial ecosystems: comparing two contrasting approaches within European climate space. Glob Ecol Biogeogr. 10, 621-37 (2001).

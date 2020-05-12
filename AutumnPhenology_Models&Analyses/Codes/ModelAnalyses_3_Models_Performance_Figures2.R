@@ -1,24 +1,6 @@
 ####################
 ## Model Performance
 
-# Contains:
-# > Calculation of performance indexes (R2, RMSE, slope)
-# > 5-fold site-specific validation
-# > Code for Figures 2A-2B-2C-2D
-
-# Define directory path
-setwd(".../AutumnPhenology/AutumnPhenology_Models&Analyses/Data/")
-
-# Load libraries
-library(data.table)
-library(tidyverse)
-library(broom)
-library(Metrics)
-
-
-##----------------------------------------
-# Calculation of Performance Indexes
-
 # From the text:
 # We evaluated the quality of the model predictions with three performance indexes 
 # of observed (y-axis) vs. predicted (x-axis) values of autumn anomaly: 
@@ -28,20 +10,36 @@ library(Metrics)
 # Additionally, the site-specific performance of the models was evaluated using 
 # 5-fold cross-validation over the observation period at the time-series scale ("site-specific validation").
 
+# Define directory path
+setwd(".../AutumnPhenology/AutumnPhenology_Models&Analyses/Data/")
+
+# Load libraries
+library(data.table)
+library(tidyverse)
+library(broom)
+library(Metrics)
+library(lmodel2)
+library(ggplot2)
+library(phenor)
+
+
+##----------------------------------------
+## Calculation of Performance Indexes
+
 # Import data
 pred_DoYoff <- fread("ModelAnalysis_1_Predicted_DoYoff.csv")
 
 # Define model names
 model.names   <- c("CDD","DM1","DM2","TPM",
                    "SIAM","TDM","TPDM",
-                   "GSIAM","PIAM-W","PIAM")
+                   "PIA_gsi","PIA-","PIA+")
 
 # Format data for calculation 
 pred_DoYoff <- pred_DoYoff %>% 
   select(timeseries,Obs_DoYoff,
          Pred_DoYoff_CDD,Pred_DoYoff_DM1,Pred_DoYoff_DM2,Pred_DoYoff_TPM,
          Pred_DoYoff_SIAM,Pred_DoYoff_TDM,Pred_DoYoff_TPDM,
-         Pred_DoYoff_GSIAM,`Pred_DoYoff_PIAM-W`,Pred_DoYoff_PIAM)
+         Pred_DoYoff_PIAgsi,`Pred_DoYoff_PIA-`,`Pred_DoYoff_PIA+`)
 colnames(pred_DoYoff) <- c("timeseries","observations",model.names)
 pred_DoYoff <- pred_DoYoff %>% 
   pivot_longer(c(-timeseries,-observations),names_to="Model",values_to="predictions")
@@ -110,13 +108,12 @@ write.table(performance_stats,"ModelAnalysis_3_Performance_R2_RMSE_slope.csv",se
 
 
 ##----------------------------------------
-## FIGURE 2A - 2B - 2C - 2D
 ## Model Performance
 
 ## MODELS OF LEAF SENESCENCE (and drivers):
 
 ## First-generation:
-# CDD (chilling temperature) - Dufrï¿½ne et al. (2005)
+# CDD (chilling temperature) - Dufrene et al. (2005)
 # DM1 and DM2 (chilling temperature, autumn daylength) - Delpierre et al. (2009)
 # TPM (chilling temperature, autumn daylength) - Lang et al. (2019)
 ## Second-generation:
@@ -126,22 +123,13 @@ write.table(performance_stats,"ModelAnalysis_3_Performance_R2_RMSE_slope.csv",se
 # GSIAM (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, vapour pressure deficit)
 # PIAM (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, precipitation, net radiation, CO2 concentrationwater stress)
 
-# Load libraries
-library(data.table)
-library(tidyverse)
-library(lmodel2)
-library(ggplot2)
-library(Metrics)
-
-
-################################
 ## FIGURE 2A
-## Observed (Obs_AnomDoYoff) vs.
-## Predicted (Pred_AnomDoYoff)
-## leaf senescence anomalies, i.e., as deviation from the mean observed leaf-out date at each site
-## of the best-performing first-generation (TPM) [Lang et al. (2019)], 
-## second-generation (TPDM) [Liu et al. (2019)]
-## and CarbLim models (PIAM)
+# Observed (Obs_AnomDoYoff) vs.
+# Predicted (Pred_AnomDoYoff)
+# leaf senescence anomalies, i.e., as deviation from the mean observed leaf-out date at each site
+# of the best-performing first-generation (TPM) [Lang et al. (2019)], 
+# second-generation (TPDM) [Liu et al. (2019)]
+# and CarbLim models (PIAM)
 
 # Import data
 pred_DoYoff <- fread("ModelAnalysis_1_Predicted_DoYoff.csv")
@@ -210,9 +198,8 @@ fig_2a <- fig_2a +
 fig_2a
 
 
-################################
-## FIGURE B
-## R^2 values
+## FIGURE 2B
+# R^2 values
 
 # Import data
 stat_models <- fread("Models_Performance_R2_RMSE_slope_v2.csv")
@@ -277,9 +264,8 @@ fig_2b <- ggplot(R2_models, aes(x=Model, y=R2_mean)) +
 fig_2b
 
 
-################################
-## FIGURE C
-## RMSE values
+## FIGURE 2C
+# RMSE values
 # for predictive models (solid-color-boxes)
 # cross-validation at the time-series level (solid-black-lines)
 # and for NULL model (dashed-black-line)
@@ -359,9 +345,8 @@ fig_2c <- ggplot(RMSE_models, aes(x=Model, y=xval_median, color=Type)) +
 fig_2c
 
 
-################################
-## FIGURE D
-## slope values
+## FIGURE 2D
+# slope values
 
 # Select slope values
 slope_models <- stat_models %>%
@@ -404,3 +389,620 @@ fig_2d <- ggplot(slope_models, aes(x=Model, y=value, color=Type)) +
         panel.background = element_rect(fill = 'white', colour = 'black')
   )
 fig_2d
+
+
+##----------------------------------------
+## Cross-Validation
+
+## Clean working environment
+rm(list=ls())
+
+# Define functions of Autumn phenology Models
+# Modified from https://github.com/khufkens/phenor/blob/master/R/phenology_models.R
+CDD.model = function(par, data){
+  # exit the routine as some parameters are missing
+  if (length(par) != 2){
+    stop("model parameter(s) out of range (too many, too few)")
+  }
+  
+  # extract the parameter values from the
+  # par argument for readability
+  T_base = par[1]
+  F_crit = par[2]
+  
+  # create forcing/chilling rate vector
+  Rf = data$Tmini - T_base
+  Rf[Rf > 0] = 0
+  
+  # photoperiod-dependent start-date for chilling accumulation (t0)
+  # t0 is defined as the first day when daily minimum temperature is lower than a temperature threshold (T_base) 
+  # after the date of the peak multiyear average daily minimum temperature, namely the 200th day of year
+  t0 <- vector()
+  for(c in 1:ncol(data$Tmini)) {
+    interval = 1:366
+    t0A = interval[which(data$Tmini[,c] < T_base)]
+    ind1 = min(which(t0A > 200))
+    t0A = t0A[ind1]
+    t0 = c(t0,t0A)
+  }
+  # nullify values before the t0
+  for(c in 1:ncol(data$Tmini)){
+    Rf[1:t0[c],c] = 0 
+  }
+  
+  # predict date of leaf.off according to optimized F_crit
+  doy = apply(Rf,2, function(xt){
+    doy = which(cumsum(xt) <= F_crit)[1]
+  })
+  
+  return(doy)
+}
+DM1.model = function(par, data){
+  # exit the routine as some parameters are missing
+  if (length(par) != 3){
+    stop("model parameter(s) out of range (too many, too few)")
+  }
+  
+  # extract the parameter values from the
+  # par argument for readability
+  T_base = par[1]
+  P_base = par[2]
+  F_crit = par[3]
+  
+  # create forcing/chilling rate vector at the day level
+  Rf = (data$Tmini - T_base)*(data$Li/P_base) # lengthening photoperiod promoting leaf senescence
+  Rf[Rf > 0] = 0
+  
+  # photoperiod-dependent start-date for chilling accumulation (t0)
+  # t0 is defined as the first day when photoperiod is shorter than the photoperiod threshold (P_base)
+  # after the date of the longest photoperiod (summer solstice), namely, the 173rd day of year
+  t0 <- vector()
+  for(c in 1:ncol(data$Tmini)) {
+    interval = 1:366
+    t0A = interval[which(data$Li[,c] < P_base)]
+    ind1 = min(which(t0A > 173))
+    t0A = t0A[ind1]
+    t0 = c(t0,t0A)
+  }
+  
+  # nullify values before the t0
+  for(c in 1:ncol(data$Tmini)){
+    Rf[1:t0[c],c] = 0 #nullify values before the date of leaf.out
+  }
+  
+  # calculate the summation along the year (interval = 1:366) and derive the date of leaf.off
+  # DOY of budburst criterium
+  doy = apply(Rf,2, function(xt){
+    doy = which(cumsum(xt) <= F_crit)[1]
+  })
+  
+  return(doy)
+}
+DM2.model = function(par, data){
+  # exit the routine as some parameters are missing
+  if (length(par) != 3){
+    stop("model parameter(s) out of range (too many, too few)")
+  }
+  
+  # extract the parameter values from the
+  # par argument for readability
+  T_base = par[1]
+  P_base = par[2]
+  F_crit = par[3]
+  
+  # create forcing/chilling rate vector at the day level
+  Rf = (data$Tmini - T_base)*(1-(data$Li/P_base)) # shortening photoperiod promoting leaf senescence
+  Rf[Rf > 0] = 0
+  
+  # photoperiod-dependent start-date for chilling accumulation (t0)
+  # t0 is defined as the first day when photoperiod is shorter than the photoperiod threshold (P_base)
+  # after the date of the longest photoperiod (summer solstice), namely, the 173rd day of year
+  t0 <- vector()
+  for(c in 1:ncol(data$Tmini)) {
+    interval = 1:366
+    t0A = interval[which(data$Li[,c] < P_base)]
+    ind1 = min(which(t0A > 173))
+    t0A = t0A[ind1]
+    t0 = c(t0,t0A)
+  }
+  
+  # nullify values before the t0
+  for(c in 1:ncol(data$Tmini)){
+    Rf[1:t0[c],c] = 0 #nullify values before the date of leaf.out
+  }
+  
+  # calculate the summation along the year (interval = 1:366) and derive the date of leaf.off
+  # DOY of budburst criterium
+  doy = apply(Rf,2, function(xt){
+    doy = which(cumsum(xt) <= F_crit)[1]
+  })
+  
+  return(doy)
+}
+TPM.model = function(par, data){
+  # exit the routine as some parameters are missing
+  if (length(par) != 4){
+    stop("model parameter(s) out of range (too many, too few)")
+  }
+  
+  # extract the parameter values from the par argument for readability
+  P_base = par[1]
+  a = par[2]
+  b = par[3]
+  F_crit = par[4]
+  
+  # create forcing/chilling rate vector at the day level
+  Rf = 1/(1+exp(a*(data$Tmini*data$Li-b)))
+  
+  # photoperiod-dependent start-date for chilling accumulation (t0)
+  # t0 is defined as the first day when photoperiod is shorter than the photoperiod threshold (P_base)
+  # after the date of the longest photoperiod (summer solstice), namely, the 173rd day of year
+  t0 <- vector()
+  for(c in 1:ncol(data$Tmini)) {
+    interval = 1:366
+    t0A = interval[which(data$Li[,c] < P_base)]
+    ind1 = min(which(t0A > 173))
+    t0A = t0A[ind1]
+    t0 = c(t0,t0A)
+  }
+  
+  # nullify values before the t0
+  for(c in 1:ncol(data$Tmini)){
+    Rf[1:t0[c],c] = 0 #nullify values before the date of leaf.out
+  }
+  
+  # calculate the summation along the year and derive the date of leaf.off
+  # DOY of budburst criterium
+  doy = apply(Rf,2, function(xt){
+    doy = which(cumsum(xt) >= F_crit)[1]
+  })
+  
+  return(doy)
+}
+SecondGen_PIA.models = function(par, predictor, data) {
+  # exit the routine as some parameters are missing
+  if (length(par) != 5 & length(par) != 6){
+    stop("model parameter(s) out of range (too many, too few)")
+  }
+  
+  # extract the parameter values from the
+  # par argument for readability
+  P_base = as.numeric(par[1])
+  a = as.numeric(par[2])
+  b = as.numeric(par[3])
+  c = as.numeric(par[4])
+  if(length(par)==5) {
+    d = as.numeric(par[5])
+    pred = predictor
+  }
+  if(length(par)==6) {
+    d = as.numeric(par[5])
+    e = as.numeric(par[6])
+    pred1 = predictor[1]
+    pred2 = predictor[2]
+  }
+  
+  # create forcing/chilling rate vector at the day level
+  Rf = 1/(1+exp(a*(data$Tmini*data$Li-b)))
+  
+  # photoperiod-dependent start-date for chilling accumulation (t0)
+  # t0 is defined as the first day when photoperiod is shorter than the photoperiod threshold (P_base)
+  # after the date of the longest photoperiod (summer solstice), namely, the 173rd day of year
+  t0 <- vector()
+  for(col in 1:ncol(data$Tmini)) {
+    interval = 1:366
+    t0A = interval[which(data$Li[,col] < 173)]
+    ind1 = min(which(t0A > 173))
+    t0A = t0A[ind1]
+    t0 = c(t0,t0A)
+  }
+  
+  # nullify values before the t0
+  for(col in 1:ncol(data$Tmini)){
+    Rf[1:t0[col],col] = 0 
+  }
+  
+  if(length(par)==5) {
+    # add predictor at the end of the matrix-columns
+    Rf = rbind(Rf,predictor)
+    
+    # predict date of leaf.off
+    doy = apply(Rf,2, function(xt){
+      doy = which(cumsum(xt[1:366]) >= c+d*xt[367])[1]
+    }) 
+  }
+  if(length(par)==6) {
+    # add predictors at the end of the matrix-columns
+    Rf = rbind(Rf,pred1)
+    Rf = rbind(Rf,pred2)
+    
+    # predict date of leaf.off
+    doy = apply(Rf,2, function(xt){
+      doy = which(cumsum(xt[1:366]) >= c+d*xt[367]+e*xt[368])[1]
+    }) 
+  }
+  
+  return(doy)
+}
+
+## Import data
+
+# Phenological observations
+# DoY_off: leaf senescence transition dates
+# DoY_out: leaf flushing transition dates
+all.df <- fread("DataMeta_3_Drivers.csv") 
+pheno.df <- all.df %>% 
+  select("timeseries","PEP_ID","LON","LAT","Species","YEAR","DoY_off","DoY_out")
+
+# Predictors
+# temp_GS: growing season temperature
+# RD_summer: number of rainy days (precipitation >2mm) during the driest months
+# cGSI: cumulative Growing Season Index
+# cA_tot: cumulative net photosynthesis modified by water-stress factor
+# cA_tot-w: cumulative net photosynthesis without water-stress factor
+preds.df <- all.df %>% 
+  select("timeseries","PEP_ID","LON","LAT","Species","YEAR","DoY_out","temp_GS","RD_summer","cGSI","cA_tot","cA_tot-w")
+
+# Optimal parameters per timeseries per model
+opt_pars.df <- fread("ModelAnalysis_2_OptimalParameters.csv") 
+
+# Minimum temperature and photoperiod
+tmin.df <- fread("Minimum Temperature.csv")
+photo.df <- fread("Photoperiod.csv")
+tmin.df$ts_yr <- paste0(tmin.df$PEP_ID,"_",tmin.df$YEAR)
+photo.df$ts_yr <- paste0(photo.df$PEP_ID,"_",photo.df$YEAR)
+
+# Define model names
+models   <- c("CDD","DM1","DM2","TPM","SIAM","TDM","TPDM","PIA_gsi","PIA-","PIA+")
+
+# Define species
+species <- unique(pheno.df$Species)
+
+# Define timeseries
+timeseries <- unique(pheno.df$timeseries)
+
+# Prepare input datasets for PHENOR package
+tmin.df <- tmin.df %>% 
+  select(-c(YEAR,PEP_ID,LAT,LON))
+photo.df <- photo.df %>% 
+  select(-c(YEAR,PEP_ID,LAT))
+phenor_input <- merge(tmin.df,photo.df,by="ts_yr")
+phenor_input <- merge(pheno.df,input,by="ts_yr")
+rm(all.df,pheno.df,tmin.df,photo.df)
+
+# Create a DataList to store all subsets for each species
+DataList <- replicate(length(species), data.frame())
+names(DataList) <- paste0("DataList","_",species)
+SiteList <- replicate(length(species), data.frame())
+
+# Initiate an external loop to subset for each species
+for(sp in 1:length(species)) {
+  
+  # Subset phenological dataset for each species
+  pheno_sp.sub <- phenor_input[which(phenor_input$Species==species[sp]),]
+  pheno_sp.sub <- as.data.frame(pheno_sp.sub)
+  
+  # Find the sites per species
+  sites <- unique(pheno_sp.sub$PEP_ID)
+  SiteList[[sp]] <- sites
+  
+  # Add empty subsets
+  DataList[[sp]] <- replicate(length(sites),data.frame())
+  names(DataList[[sp]]) <- paste0("data_",sites,"_",pheno_sp.sub[1,]$Species)
+  
+  # Counter for sites
+  count  <- 0 
+  
+  # Loop for each site
+  for(site in sites){
+    index <- which(pheno_sp.sub$PEP_ID==site)
+    data = list("doy" = as.vector(pheno_sp.sub[index,]$DoY_out),
+                "site" = as.vector(paste0(pheno_sp.sub[index,]$PEP_ID,"_",pheno_sp.sub[1,]$Species)),
+                "location" = t(pheno_sp.sub[index,c("LON","LAT")]), 
+                "year" = as.vector(pheno_sp.sub[index,]$YEAR),
+                "Ti" = NULL,
+                "Tmini" = t(pheno_sp.sub[index,paste0(1:366,".x")]), 
+                "Tmaxi" = NULL,
+                "Li" = t(pheno_sp.sub[index,paste0(1:366,".y")]),
+                "SPEI" = NULL,
+                "VPDi" = NULL,
+                "transition_dates" = as.vector(pheno_sp.sub[index,]$DoY_off),
+                "georeferencing" = NULL
+    )
+    
+    # Store each site-specific dataframe in the DataList of the corresponding species
+    count <- count+1
+    DataList[[sp]][[count]] <- data
+  }
+  print(paste0(species[sp]," DONE!"))
+}
+rm(index,data,pheno_sp.sub,sites,site,count,sp)
+
+
+## 5-fold Cross-Validation
+
+# Initialize dataframe
+Xval.df <- data.frame() 
+
+for(sp in 1:length(species)) {
+  
+  # Initialize dataset per species
+  Xval.sp <- data.frame()
+  
+  # Calculate number of sites per species
+  sites <- SiteList[[sp]]
+  
+  for(site in 1:length(sites)) {
+    
+    # Subset according to timeseries
+    ts <- paste0(species[sp],"_",sites[site])
+    data.sub <- DataList[[sp]][[site]]
+    preds.sub <- preds.df %>% 
+      filter(timeseries==ts)
+    opt_pars.sub <- opt_pars.df %>% 
+      filter(timeseries==ts)
+    
+    # Initialize sub-dataframe to store results
+    Xval.sub <- data.frame(timeseries=data.sub$site, Species=species[sp])
+    
+    # Initialize vectors to store predictions
+    predictions_CDD <- vector(length = length(data.sub$site))
+    predictions_DM1 <- vector(length = length(data.sub$site))
+    predictions_DM2 <- vector(length = length(data.sub$site))
+    predictions_TPM <- vector(length = length(data.sub$site))
+    predictions_SIAM <- vector(length = length(data.sub$site))
+    predictions_TDM <- vector(length = length(data.sub$site))
+    predictions_TPDM <- vector(length = length(data.sub$site))
+    predictions_PIAgsi <- vector(length = length(data.sub$site))
+    `predictions_PIA-` <- vector(length = length(data.sub$site))
+    `predictions_PIA+` <- vector(length = length(data.sub$site))
+    
+    # k-fold partitioning of the data set for model testing purposes. 
+    # Each record is randomly assigned to a group. Group numbers are between 1 and k
+    ks <- kfold(data.sub$year, k=5)
+    for(i in 1:5){
+      # get the train and test subsets
+      train = list("doy" = data.sub$doy[ks!=i],
+                   "site" = data.sub$site[ks!=i],
+                   "location" = data.sub$location[,ks!=i], 
+                   "year" = data.sub$year[ks!=i],
+                   "Ti" = NULL,
+                   "Tmini" = data.sub$Tmini[,ks!=i],
+                   "Tmaxi" = NULL,
+                   "Li" = data.sub$Li[,ks!=i],
+                   "SPEI" = NULL,
+                   "VPDi" = NULL,
+                   "transition_dates" = data.sub$transition_dates[ks!=i],
+                   "georeferencing" = NULL
+      )
+      test  = list("doy" = data.sub$doy[ks==i],
+                   "site" = data.sub$site[ks==i],
+                   "location" = data.sub$location[,ks==i], 
+                   "year" = data.sub$year[ks==i],
+                   "Ti" = NULL,
+                   "Tmini" = data.sub$Tmini[,ks==i],
+                   "Tmaxi" = NULL,
+                   "Li" = data.sub$Li[,ks==i],
+                   "SPEI" = NULL,
+                   "VPDi" = NULL,
+                   "transition_dates" = data.sub$transition_dates[ks==i],
+                   "georeferencing" = NULL
+      )
+      
+      ## CDD model
+      # Optimize parameters using the train dataset 
+      # use opt_pars.sub to restrict the parameter range and speed up the validation
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "CDD.model",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$Tbase_CDD-3,opt_pars.sub$Fcrit_CDD-10), 
+                                          upper = c(opt_pars.sub$Tbase_CDD+3,0),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      predictions_CDD[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                          data = test,
+                                                          model = "CDD.model")
+      
+      ## DM1 model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "DM1.model",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$Tbase_DM1-3,opt_pars.sub$Pbase_DM1-3,opt_pars.sub$Fcrit_DM1-10), 
+                                          upper = c(opt_pars.sub$Tbase_DM1+3,opt_pars.sub$Pbase_DM1-3,0),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      predictions_DM1[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                          data = test,
+                                                          model = "DM1.model")
+      
+      ## DM2 model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "DM2.model",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$Tbase_DM2-3,opt_pars.sub$Pbase_DM2-3,opt_pars.sub$Fcrit_DM2-10), 
+                                          upper = c(opt_pars.sub$Tbase_DM2+3,opt_pars.sub$Pbase_DM2-3,0),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      predictions_DM2[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                          data = test,
+                                                          model = "DM2.model")
+      
+      ## TPM model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "TPM.model",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$Pbase_TPM-3,opt_pars.sub$a_TPM-0.02,opt_pars.sub$b_TPM-10,opt_pars.sub$Fcrit_TPM-10), 
+                                          upper = c(opt_pars.sub$Pbase_TPM+3,opt_pars.sub$a_TPM+0.02,opt_pars.sub$b_TPM+10,0),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      predictions_TPM[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                          data = test,
+                                                          model = "TPM.model")
+      
+      # Divide predictors between test and train datasets
+      train_id <- train$site
+      test_id <- test$site
+      DoY_out.train <- preds.sub[which(preds.sub$timeseries==train_id),]$DoY_out
+      DoY_out.test <- preds.sub[which(preds.sub$timeseries==test_id),]$DoY_out
+      temp_GS.train <- preds.sub[which(preds.sub$timeseries==train_id),]$temp_GS
+      temp_GS.test <- preds.sub[which(preds.sub$timeseries==test_id),]$temp_GS
+      RD_summer.train <- preds.sub[which(preds.sub$timeseries==train_id),]$RD_summer
+      RD_summer.test <- preds.sub[which(preds.sub$timeseries==test_id),]$RD_summer
+      cGSI.train <- preds.sub[which(preds.sub$timeseries==train_id),]$cGSI
+      cGSI.test <- preds.sub[which(preds.sub$timeseries==test_id),]$cGSI
+      `cA_tot-w.train` <- preds.sub[which(preds.sub$timeseries==train_id),]$`cA_tot-w`
+      `cA_tot-w.test` <- preds.sub[which(preds.sub$timeseries==test_id),]$`cA_tot-w`
+      cA_tot.train <- preds.sub[which(preds.sub$timeseries==train_id),]$cA_tot
+      cA_tot.test <- preds.sub[which(preds.sub$timeseries==test_id),]$cA_tot
+      
+      # Error check
+      if(DoY_out.train!=train$doy) {
+        print("ERROR k-fold partitioning!")
+        break
+      }
+      
+      ## SIAM model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          predictor = DoY_out.train,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "SecondGen_PIA.models",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$Pbase_SIAM-3,opt_pars.sub$a_SIAM-0.02,opt_pars.sub$b_SIAM-10,opt_pars.sub$c_SIAM-20,opt_pars.sub$d_SIAM-0.3), 
+                                          upper = c(opt_pars.sub$Pbase_SIAM+3,opt_pars.sub$a_SIAM+0.02,opt_pars.sub$b_SIAM+10,opt_pars.sub$c_SIAM+20,opt_pars.sub$d_SIAM+0.3),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      predictions_SIAM[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                           predictor = DoY_out.test,
+                                                           data = test,
+                                                           model = "SecondGen_PIA.models")
+      
+      ## TDM model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          predictor = temp_GS.train,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "SecondGen_PIA.models",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$Pbase_TDM-3,opt_pars.sub$a_TDM-0.02,opt_pars.sub$b_TDM-10,opt_pars.sub$c_TDM-20,opt_pars.sub$d_TDM-0.3), 
+                                          upper = c(opt_pars.sub$Pbase_TDM+3,opt_pars.sub$a_TDM+0.02,opt_pars.sub$b_TDM+10,opt_pars.sub$c_TDM+20,opt_pars.sub$d_TDM+0.3),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      predictions_TDM[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                          predictor = temp_GS.test,
+                                                          data = test,
+                                                          model = "SecondGen_PIA.models")
+      
+      ## TPDM model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          predictor = c(temp_GS.train,RD_summer.train),
+                                          data = train,
+                                          cost = rmse,
+                                          model = "SecondGen_PIA.models",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$Pbase_TPDM-3,opt_pars.sub$a_TPDM-0.02,opt_pars.sub$b_TPDM-10,opt_pars.sub$c_TPDM-20,opt_pars.sub$d_TPDM-0.3), 
+                                          upper = c(opt_pars.sub$Pbase_TPDM+3,opt_pars.sub$a_TPDM+0.02,opt_pars.sub$b_TPDM+10,opt_pars.sub$c_TPDM+20,opt_pars.sub$d_TPDM+0.3),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      predictions_TPDM[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                           predictor = c(temp_GS.test,RD_summer.test),
+                                                           data = test,
+                                                           model = "SecondGen_PIA.models")
+      
+      ## PIA_gsi model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          predictor = cGSI.train,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "SecondGen_PIA.models",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$Pbase_PIAgsi-3,opt_pars.sub$a_PIAgsi-0.02,opt_pars.sub$b_PIAgsi-10,opt_pars.sub$c_PIAgsi-20,opt_pars.sub$d_PIAgsi-0.3), 
+                                          upper = c(opt_pars.sub$Pbase_PIAgsi+3,opt_pars.sub$a_PIAgsi+0.02,opt_pars.sub$b_PIAgsi+10,opt_pars.sub$c_PIAgsi+20,opt_pars.sub$d_PIAgsi+0.3),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      predictions_PIAgsi[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                             predictor = cGSI.test,
+                                                             data = test,
+                                                             model = "SecondGen_PIA.models")
+      
+      ## PIA- model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          predictor = `cA_tot-w.train`,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "SecondGen_PIA.models",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$`Pbase_PIA-`-3,opt_pars.sub$`a_PIA-`-0.02,opt_pars.sub$`b_PIA-`-10,opt_pars.sub$`c_PIA-`-20,opt_pars.sub$`d_PIA-`-0.3), 
+                                          upper = c(opt_pars.sub$`Pbase_PIA-`+3,opt_pars.sub$`a_PIA-`+0.02,opt_pars.sub$`b_PIA-`+10,opt_pars.sub$`c_PIA-`+20,opt_pars.sub$`d_PIA-`+0.3),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      `predictions_PIA-`[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                             predictor = `cA_tot-w.test`,
+                                                             data = test,
+                                                             model = "SecondGen_PIA.models")
+      
+      ## PIA+ model
+      # Optimize parameters using the train dataset 
+      optimal_pars <- optimize_parameters(par = NULL,
+                                          predictor = cA_tot.train,
+                                          data = train,
+                                          cost = rmse,
+                                          model = "SecondGen_PIA.models",
+                                          method = "GenSA",
+                                          lower = c(opt_pars.sub$`Pbase_PIA+`-3,opt_pars.sub$`a_PIA+`-0.02,opt_pars.sub$`b_PIA+`-10,opt_pars.sub$`c_PIA+`-20,opt_pars.sub$`d_PIA+`-0.3), 
+                                          upper = c(opt_pars.sub$`Pbase_PIA+`+3,opt_pars.sub$`a_PIA+`+0.02,opt_pars.sub$`b_PIA+`+10,opt_pars.sub$`c_PIA+`+20,opt_pars.sub$`d_PIA+`+0.3),
+                                          control = list(max.call = 40000))
+      # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+      `predictions_PIA+`[which(ks==i)] <- estimate_phenology(par = optimal_pars$par,
+                                                             predictor = cA_tot.test,
+                                                             data = test,
+                                                             model = "SecondGen_PIA.models")
+      
+    }
+    
+    # Get the RMSE
+    Xval.sub$RMSE_CDD <- rmse(predictions_CDD,data.sub$transition_dates)
+    Xval.sub$RMSE_DM1 <- rmse(predictions_DM1,data.sub$transition_dates)
+    Xval.sub$RMSE_DM2 <- rmse(predictions_DM2,data.sub$transition_dates)
+    Xval.sub$RMSE_TPM <- rmse(predictions_TPM,data.sub$transition_dates)
+    Xval.sub$RMSE_SIAM <- rmse(predictions_SIAM,data.sub$transition_dates)
+    Xval.sub$RMSE_TDM <- rmse(predictions_TDM,data.sub$transition_dates)
+    Xval.sub$RMSE_TPDM <- rmse(predictions_TPDM,data.sub$transition_dates)
+    Xval.sub$RMSE_PIAgsi <- rmse(predictions_PIAgsi,data.sub$transition_dates)
+    Xval.sub$`RMSE_PIA-` <- rmse(`predictions_PIA-`,data.sub$transition_dates)
+    Xval.sub$`RMSE_PIA+` <- rmse(`predictions_PIA+`,data.sub$transition_dates)
+    
+    # Bind site-datasets
+    Xval.sp <- rbind(Xval.sp,Xval.sub)
+    print(paste0("RUNNING: ",Xval.sub$timeseries," ",site," OF ",length(sites)))
+  }
+  # Bind final datasets
+  Xval.df <- rbind(Xval.df,Xval.sp)
+}
+write.table(Xval.df,"ModelAnalysis_4_CrossValidation_RMSE.csv",sep=";",row.names = F)
+
+
+##----------------------------------------
+## References
+
+# Dufrêne, E. et al. Modelling carbon and water cycles in a beech forest: Part I: Model description and uncertainty analysis on modelled NEE. Ecol. Modell. 185, 407-436 (2005).
+# Delpierre, N. et al. Modelling interannual and spatial variability of leaf senescence for three deciduous tree species in France. Agric. For. Meteorol. 149, 938-948 (2009).
+# Keenan, T. F. & Richardson, A. D. The timing of autumn senescence is affected by the timing of spring phenology: Implications 434 for predictive models. Glob. Chang. Biol. 21, 2634-2641 (2015).
+# Lang, W., Chen, X., Qian, S., Liu, G. & Piao, S. A new process-based model for predicting autumn phenology: How is leaf senescence controlled by photoperiod and temperature coupling? Agric. For. Meteorol. 268, 124-135 (2019).
+# Liu, G., Chen, X., Fu, Y. & Delpierre, N. Modelling leaf coloration dates over temperate China by considering effects of leafy season climate. 460 Ecol. Modell. 394, 34-43 (2019).
