@@ -28,9 +28,9 @@ library(dismo)
 ## Second-generation:
 # SIAM (chilling temperature, autumn daylength, spring anomaly) - Keenan and Richardson (2015)
 # TDM and TPDM (chilling temperature, autumn daylength, growing season temperature / + water stress) - Liu et al. (2019)
-## CarbLim:
-# GSIAM (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, vapour pressure deficit)
-# PIAM (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, precipitation, net radiation, CO2 concentrationwater stress)
+## PIA:
+# PIA_gsi (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, vapour pressure deficit)
+# PIA-/+ (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, precipitation, net radiation, CO2 concentration, -/+ water stress)
 
 # Define functions of Autumn phenology Models
 # Modified from https://github.com/khufkens/phenor/blob/master/R/phenology_models.R
@@ -269,9 +269,10 @@ SecondGen_PIA.models = function(par, predictor, data) {
 # DoY_out: leaf flushing transition dates
 all.df <- fread("DataMeta_3_Drivers.csv") 
 pheno.df <- all.df %>% 
-  select("timeseries","PEP_ID","LON","LAT","Species","YEAR","DoY_off","DoY_out","autumn_anomaly","spring_anomaly")
+  select("timeseries","PEP_ID","LON","LAT","Species","YEAR","DoY_off","DoY_out")
 
 # Predictors
+# DoY_out: leaf flushing transition dates
 # temp_GS: growing season temperature
 # RD_summer: number of rainy days (precipitation >2mm) during the driest months
 # cGSI: cumulative Growing Season Index
@@ -382,9 +383,10 @@ for(sp in 1:length(species)) {
     DoYoff_Preds.sub$Obs_DoYoff <- data.sub$transition_dates
     opt_pars.sub <- data.frame(timeseries=data.sub$site, Species=species[sp], PEP_ID=sites)
     
+    ## Parameter optimization and Prediction of leaf senescence dates
+    # PHENOR package (Hufkenset al., 2018)
     
     ## CDD model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
                                         data = data.sub,
                                         cost = rmse,
@@ -395,16 +397,13 @@ for(sp in 1:length(species)) {
                                         control = list(max.call = 40000))
     opt_pars.sub$Tbase_CDD <- optimal_pars[1]
     opt_pars.sub$Fcrit_CDD <- optimal_pars[2]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$Pred_DoYoff_CDD <- estimate_phenology(par = optimal_pars$par,
-                                                       data = test,
-                                                       model = "CDD.model")
+                                                           data = data.sub,
+                                                           model = "CDD.model")
     
     ## DM1 model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        data = train,
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "DM1.model",
                                         method = "GenSA",
@@ -414,16 +413,13 @@ for(sp in 1:length(species)) {
     opt_pars.sub$Tbase_DM1 <- optimal_pars[1]
     opt_pars.sub$Pbase_DM1 <- optimal_pars[2]
     opt_pars.sub$Fcrit_DM1 <- optimal_pars[3]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$Pred_DoYoff_DM1 <- estimate_phenology(par = optimal_pars$par,
-                                                        data = test,
-                                                        model = "DM1.model")
+                                                           data = data.sub,
+                                                           model = "DM1.model")
     
     ## DM2 model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        data = train,
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "DM2.model",
                                         method = "GenSA",
@@ -433,16 +429,13 @@ for(sp in 1:length(species)) {
     opt_pars.sub$Tbase_DM2 <- optimal_pars[1]
     opt_pars.sub$Pbase_DM2 <- optimal_pars[2]
     opt_pars.sub$Fcrit_DM2 <- optimal_pars[3]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$Pred_DoYoff_DM2 <- estimate_phenology(par = optimal_pars$par,
-                                                        data = test,
-                                                        model = "DM2.model")
+                                                           data = data.sub,
+                                                           model = "DM2.model")
     
     ## TPM model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        data = train,
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "TPM.model",
                                         method = "GenSA",
@@ -453,17 +446,14 @@ for(sp in 1:length(species)) {
     opt_pars.sub$a_TPM <- optimal_pars[2]
     opt_pars.sub$b_TPM <- optimal_pars[3]
     opt_pars.sub$Fcrit_TPM <- optimal_pars[4]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$Pred_DoYoff_TPM <- estimate_phenology(par = optimal_pars$par,
-                                                        data = test,
-                                                        model = "TPM.model")
+                                                           data = data.sub,
+                                                           model = "TPM.model")
     
     ## SIAM model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = DoY_out.train,
-                                        data = train,
+                                        predictor = preds.sub$DoY_out,
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "SecondGen_PIA.models",
                                         method = "GenSA",
@@ -475,18 +465,15 @@ for(sp in 1:length(species)) {
     opt_pars.sub$b_SIAM <- optimal_pars[3]
     opt_pars.sub$c_SIAM <- optimal_pars[4]
     opt_pars.sub$d_SIAM <- optimal_pars[5]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$Pred_DoYoff_SIAM <- estimate_phenology(par = optimal_pars$par,
-                                                         predictor = DoY_out.test,
-                                                         data = test,
-                                                         model = "SecondGen_PIA.models")
+                                                            predictor = preds.sub$DoY_out,
+                                                            data = data.sub,
+                                                            model = "SecondGen_PIA.models")
     
     ## TDM model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = temp_GS.train,
-                                        data = train,
+                                        predictor = preds.sub$temp_GS,
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "SecondGen_PIA.models",
                                         method = "GenSA",
@@ -498,41 +485,36 @@ for(sp in 1:length(species)) {
     opt_pars.sub$b_TDM <- optimal_pars[3]
     opt_pars.sub$c_TDM <- optimal_pars[4]
     opt_pars.sub$d_TDM <- optimal_pars[5]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$Pred_DoYoff_TDM <- estimate_phenology(par = optimal_pars$par,
-                                                        predictor = temp_GS.test,
-                                                        data = test,
-                                                        model = "SecondGen_PIA.models")
+                                                           predictor = preds.sub$temp_GS,
+                                                           data = data.sub,
+                                                           model = "SecondGen_PIA.models")
     
     ## TPDM model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = c(temp_GS.train,RD_summer.train),
-                                        data = train,
+                                        predictor = c(preds.sub$temp_GS,preds.sub$RD_summer),
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "SecondGen_PIA.models",
                                         method = "GenSA",
-                                        lower = c(11,0.02,100,0,0),
-                                        upper = c(16,0.1,250,300,1),
+                                        lower = c(11,0.02,100,0,0,0),
+                                        upper = c(16,0.1,250,300,1,1),
                                         control = list(max.call = 40000))
     opt_pars.sub$Pbase_TPDM <- optimal_pars[1]
     opt_pars.sub$a_TPDM <- optimal_pars[2]
     opt_pars.sub$b_TPDM <- optimal_pars[3]
     opt_pars.sub$c_TDPM <- optimal_pars[4]
     opt_pars.sub$d_TPDM <- optimal_pars[5]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
+    opt_pars.sub$e_TPDM <- optimal_pars[6]
     DoYoff_Preds.sub$Pred_DoYoff_TPDM <- estimate_phenology(par = optimal_pars$par,
-                                                         predictor = c(temp_GS.test,RD_summer.test),
-                                                         data = test,
-                                                         model = "SecondGen_PIA.models")
+                                                            predictor = c(preds.sub$temp_GS,preds.sub$RD_summer),
+                                                            data = data.sub,
+                                                            model = "SecondGen_PIA.models")
     
     ## PIA_gsi model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = cGSI.train,
-                                        data = train,
+                                        predictor = preds.sub$cGSI,
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "SecondGen_PIA.models",
                                         method = "GenSA",
@@ -544,18 +526,15 @@ for(sp in 1:length(species)) {
     opt_pars.sub$b_PIAgsi <- optimal_pars[3]
     opt_pars.sub$c_PIAgsi <- optimal_pars[4]
     opt_pars.sub$d_PIAgsi <- optimal_pars[5]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$Pred_DoYoff_PIAgsi <- estimate_phenology(par = optimal_pars$par,
-                                                           predictor = cGSI.test,
-                                                           data = test,
-                                                           model = "SecondGen_PIA.models")
+                                                              predictor = preds.sub$cGSI,
+                                                              data = data.sub,
+                                                              model = "SecondGen_PIA.models")
     
     ## PIA- model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = `cA_tot-w.train`,
-                                        data = train,
+                                        predictor = preds.sub$`cA_tot-w`,
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "SecondGen_PIA.models",
                                         method = "GenSA",
@@ -567,18 +546,15 @@ for(sp in 1:length(species)) {
     opt_pars.sub$`b_PIA-` <- optimal_pars[3]
     opt_pars.sub$`c_PIA-` <- optimal_pars[4]
     opt_pars.sub$`d_PIA-` <- optimal_pars[5]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$`Pred_DoYoff_PIA-` <- estimate_phenology(par = optimal_pars$par,
-                                                           predictor = `cA_tot-w.test`,
-                                                           data = test,
-                                                           model = "SecondGen_PIA.models")
+                                                              predictor = preds.sub$`cA_tot`,
+                                                              data = data.sub,
+                                                              model = "SecondGen_PIA.models")
     
     ## PIA+ model
-    # Optimize parameters using the train dataset 
     optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = cA_tot.train,
-                                        data = train,
+                                        predictor = preds.sub$cA_tot,
+                                        data = data.sub,
                                         cost = rmse,
                                         model = "SecondGen_PIA.models",
                                         method = "GenSA",
@@ -590,12 +566,10 @@ for(sp in 1:length(species)) {
     opt_pars.sub$`b_PIA+` <- optimal_pars[3]
     opt_pars.sub$`c_PIA+` <- optimal_pars[4]
     opt_pars.sub$`d_PIA+` <- optimal_pars[5]
-    
-    # Predict dates of leaf senescence of the test dataset using the train-optimized parameters
     DoYoff_Preds.sub$`Pred_DoYoff_PIA+` <- estimate_phenology(par = optimal_pars$par,
-                                                           predictor = cA_tot.test,
-                                                           data = test,
-                                                           model = "SecondGen_PIA.models")
+                                                              predictor = preds.sub$cA_tot,
+                                                              data = data.sub,
+                                                              model = "SecondGen_PIA.models")
     
     # Autumn anomalies
     DoYoff_Preds.sub$meansite_DoYoff <- mean(data.sub$transition_dates)
@@ -632,3 +606,4 @@ write.table(opt_pars.df,"ModelAnalysis_2_OptimalParameters.csv",sep=";",row.name
 # Keenan, T. F. & Richardson, A. D. The timing of autumn senescence is affected by the timing of spring phenology: Implications 434 for predictive models. Glob. Chang. Biol. 21, 2634-2641 (2015).
 # Lang, W., Chen, X., Qian, S., Liu, G. & Piao, S. A new process-based model for predicting autumn phenology: How is leaf senescence controlled by photoperiod and temperature coupling? Agric. For. Meteorol. 268, 124-135 (2019).
 # Liu, G., Chen, X., Fu, Y. & Delpierre, N. Modelling leaf coloration dates over temperate China by considering effects of leafy season climate. 460 Ecol. Modell. 394, 34-43 (2019).
+# Hufkens, K., Basler, D., Milliman, T., Melaas, E. K. & Richardson, A. D. An integrated phenology modelling framework in r. Methods Ecol. Evol. 9, 1276-1285 (2018).

@@ -110,19 +110,6 @@ write.table(performance_stats,"ModelAnalysis_3_Performance_R2_RMSE_slope.csv",se
 ##----------------------------------------
 ## Model Performance
 
-## MODELS OF LEAF SENESCENCE (and drivers):
-
-## First-generation:
-# CDD (chilling temperature) - Dufrene et al. (2005)
-# DM1 and DM2 (chilling temperature, autumn daylength) - Delpierre et al. (2009)
-# TPM (chilling temperature, autumn daylength) - Lang et al. (2019)
-## Second-generation:
-# SIAM (chilling temperature, autumn daylength, spring anomaly) - Keenan and Richardson (2015)
-# TDM and TPDM (chilling temperature, autumn daylength, growing season temperature / + water stress) - Liu et al. (2019)
-## CarbLim:
-# GSIAM (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, vapour pressure deficit)
-# PIAM (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, precipitation, net radiation, CO2 concentrationwater stress)
-
 ## FIGURE 2A
 # Observed (Obs_AnomDoYoff) vs.
 # Predicted (Pred_AnomDoYoff)
@@ -397,6 +384,19 @@ fig_2d
 ## Clean working environment
 rm(list=ls())
 
+## MODELS OF LEAF SENESCENCE (and drivers):
+
+## First-generation:
+# CDD (chilling temperature) - Dufrene et al. (2005)
+# DM1 and DM2 (chilling temperature, autumn daylength) - Delpierre et al. (2009)
+# TPM (chilling temperature, autumn daylength) - Lang et al. (2019)
+## Second-generation:
+# SIAM (chilling temperature, autumn daylength, spring anomaly) - Keenan and Richardson (2015)
+# TDM and TPDM (chilling temperature, autumn daylength, growing season temperature / + water stress) - Liu et al. (2019)
+## PIA:
+# PIA_gsi (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, vapour pressure deficit)
+# PIA-/+ (chilling temperature, autumn daylength, leaf flushing date, growing season mean temperature, daylength, precipitation, net radiation, CO2 concentration, -/+ water stress)
+
 # Define functions of Autumn phenology Models
 # Modified from https://github.com/khufkens/phenor/blob/master/R/phenology_models.R
 CDD.model = function(par, data){
@@ -635,6 +635,7 @@ pheno.df <- all.df %>%
   select("timeseries","PEP_ID","LON","LAT","Species","YEAR","DoY_off","DoY_out")
 
 # Predictors
+# DoY_out: leaf flushing transition dates
 # temp_GS: growing season temperature
 # RD_summer: number of rainy days (precipitation >2mm) during the driest months
 # cGSI: cumulative Growing Season Index
@@ -788,6 +789,9 @@ for(sp in 1:length(species)) {
                    "transition_dates" = data.sub$transition_dates[ks==i],
                    "georeferencing" = NULL
       )
+      
+      ## Parameter optimization and Prediction of leaf senescence dates
+      # PHENOR package (Hufkenset al., 2018)
       
       ## CDD model
       # Optimize parameters using the train dataset 
@@ -1006,3 +1010,4 @@ write.table(Xval.df,"ModelAnalysis_4_CrossValidation_RMSE.csv",sep=";",row.names
 # Keenan, T. F. & Richardson, A. D. The timing of autumn senescence is affected by the timing of spring phenology: Implications 434 for predictive models. Glob. Chang. Biol. 21, 2634-2641 (2015).
 # Lang, W., Chen, X., Qian, S., Liu, G. & Piao, S. A new process-based model for predicting autumn phenology: How is leaf senescence controlled by photoperiod and temperature coupling? Agric. For. Meteorol. 268, 124-135 (2019).
 # Liu, G., Chen, X., Fu, Y. & Delpierre, N. Modelling leaf coloration dates over temperate China by considering effects of leafy season climate. 460 Ecol. Modell. 394, 34-43 (2019).
+# Hufkens, K., Basler, D., Milliman, T., Melaas, E. K. & Richardson, A. D. An integrated phenology modelling framework in r. Methods Ecol. Evol. 9, 1276-1285 (2018).
