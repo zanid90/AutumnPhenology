@@ -120,39 +120,23 @@ detach("package:sp", unload=TRUE)
 ##----------------------------------------
 ## CO2 concentrations
 
-# IPCC dataset (1900-2100)
-# Fossil fuel and land use CO2 emissions and other well mixed GHG emissions follow IPCC's RCP8.5 (BAU)
-# Global and hemishperic means w/ yearly resolution
-# Unit: Gtons CO^2 per year
-CO2_fut.df <- read_excel("2100-projections_climate-scoreboard_2015-1214.xlsx")
-pheno_soil_co2.df <- CO2_fut.df %>% 
-  filter(Year > 2015) %>% 
-  select(Year,BAU) %>% 
-  left_join(pheno_soil.df,., by="Year")
-rm(CO2_fut.df,pheno_soil.df)
-
-# AIC ETH dataset (1948-2014)
+# AIC ETH dataset (1-2014)
 # Global and hemishperic means w/ monthly resolution
 # Unit: Surface mole fractions (ppm)
 CO2_ETH <- fread("mole_fraction_of_carbon_dioxide_in_air_input.csv")
 
-# Mauna Loa dataset (2015)
-# Unit: monthly atmospheric CO2 data 1958-present
+# Mauna Loa dataset (1-2019)
+# Global means w/ monthly resolution
+# Unit: Surface mole fractions (ppm)
 CO2_mauna <- fread("monthly_in_situ_co2_mlo.csv") 
 
-# Fill missing values
-CO2_mauna[which(CO2_mauna$data_mean_nh==-99.99),]$data_mean_n <- CO2_mauna[which(CO2_mauna$data_mean_n==-99.99),]$CO2.1 
-
 # Filter for years of interest (1948-2015)
-years <- unique((pheno_soil_co2.df$YEAR)) 
-years <- sort(years, decreasing=F)
-years <- years[which(years>=1948 & years<=2014)]
 CO2_ETH <- CO2_ETH %>% 
-    filter(year %in% years)
+    filter(year %in% unique((pheno_soil_co2.df$YEAR)) )
 CO2_mauna <- CO2_mauna %>% 
     filter(year == 2015)
 
-# Select values for nothern hemisphere
+# Select values for northern hemisphere
 CO2_ETH <- CO2_ETH %>% 
     select(year,month,data_mean_nh)
 CO2_mauna <- CO2_mauna %>% 
@@ -493,8 +477,9 @@ for(ty in timeseries_year) {
 
 
 ##----------------------------------------
-## Calculate cGSI
+## Calculate cGSI 
 # cGSI = cumulative growing season index
+# ci = intercellular CO2 concentration
 
 vn <- c('Maximum Temperature','Minimum Temperature','Mean Temperature')
 DataList <- replicate(length(vn),data.frame())
@@ -585,7 +570,7 @@ VPD.fun <- function(VPD, VPD_min, VPD_max) {
 # (modified by Jolly et al. 2005)
 
 # Initialize dataframes
-GSI <- data.frame()
+GSI.df <- data.frame()
 
 # Get all time-points
 timeseries_year <- unique(DataList[[4]]$ts_yr)
@@ -689,7 +674,140 @@ for(ty in timeseries_year) {
     GSI.sub$cGSI <- cGSI
     
     # Bind final datasets
-    GSI <- rbind(GSI,GSI.sub)
+    GSI.df <- rbind(GSI.df,GSI.sub)
+    print(paste0("RUN: ",which(ty==timeseries_year)," OF ",length(timeseries_year)))
+  }
+}
+
+
+##----------------------------------------
+## Calculate monthly ci (intercellular CO2 concentration)
+# ci = atmospheric CO2 concentration * Vapour Pressudre Deficit (VPD) function
+
+# Monthly atmoshperic CO2 concentration
+# AIC ETH dataset (1948-2014)
+CO2_ETH.df <- fread("mole_fraction_of_carbon_dioxide_in_air_input.csv") %>%
+  select(year,month,data_mean_nh) %>%
+  filter(year %in% unique((drivers.df$YEAR))) %>%
+  group_by(year,month) %>%
+  summarise(CO2=sum(data_mean_nh)) %>%
+  rename(YEAR=year)
+
+# Mauna Loa dataset
+CO2_monthly.df <- fread("monthly_in_situ_co2_mlo.csv") %>%
+  filter(Yr == 2015) %>%
+  group_by(Yr,Mn) %>%
+  summarise(CO2=sum(CO2)) %>%
+  rename(YEAR=Yr,month=Mn) %>%
+  rbind(CO2_ETH.df,.) %>% 
+  ungroup(YEAR,month)
+
+# Initialize dataframe to store results
+ci.df <- data.frame()
+
+# Calculate intercellular partial pressure of CO2 (ci)
+for(ty in timeseries_year) {
+  
+  # Subest by time-point
+  pheno.sub <- DataList[[4]][which(DataList[[4]]$ts_yr==ty),]
+  T_max.sub <- DataList[[1]][which(DataList[[1]]$ts_yr==ty),]
+  T_min.sub <- DataList[[2]][which(DataList[[2]]$ts_yr==ty),]
+  CO2.sub <- CO2_monthly.df %>% 
+    filter(YEAR == unique(pheno.sub$YEAR))
+  
+  # Define the current year in calendar units
+  year <- strsplit(ty,"_")[[1]][2]
+  start_doy <- paste(year,"-01-01", sep="") 
+  end_doy <- paste(year,"-12-31", sep="")
+  days <- seq(as.Date(start_doy), as.Date(end_doy), by="days")
+  
+  # Calculate the monthly averages
+  TMAX <- T_max.sub %>% 
+    select(as.character(1:366))
+  TMIN <- T_min.sub %>% 
+    select(as.character(1:366))
+  daily_vals <- data.frame(Tmax=as.numeric(TMAX), Tmin=as.numeric(TMIN), MONTH=0)
+  daily_vals <- daily_vals[complete.cases(daily_vals),]
+  daily_vals$MONTH <- lubridate::month(as.Date(days,origin=days[1]))
+  
+  # Order time-series
+  z  <- zoo(daily_vals, days)
+  
+  # Go from daily values to mean monthly values 
+  month <- function(x)format(x, '%Y-%m')
+  monthly_vals <- as.data.frame(aggregate(z, by=month, FUN=mean))
+  
+  # N.B.:
+  # for each time-point there might be multiple rows (i.e. different species)
+  species.n <- 1:nrow(pheno.sub)
+  
+  for(sp in species.n) {
+    
+    # Subset by species
+    pheno.sub <- drivers.df[which(drivers.df$ts_yr==ty),]
+    pheno.sub <- pheno.sub[sp,]  
+    
+    # Growing season GS
+    DoY_out <- pheno.sub$DoY_out
+    DoY_off <- pheno.sub$DoY_off
+    
+    # Get the months of predicted leaf-out and leaf-off
+    month_out <- lubridate::month(as.Date(DoY_out,origin=days[1]))
+    month_off <- lubridate::month(as.Date(DoY_off,origin=days[1]))
+    GS_interval <- month_out:month_off
+    
+    # Estimate VPD parameters based on plant-functional type (PFT)
+    if(pheno.sub$PFT=="BNL") {
+      VPD_min       <- 0.61
+      VPD_max       <- 3.1
+    } else {
+      VPD_min       <- 1.1
+      VPD_max       <- 3.6
+    }
+    
+    # Initialize vector to store mothly ci values
+    ci_GS <- vector()
+    
+    # Loop through days in the growing season
+    for(mnt in GS_interval) {
+      mnt <- as.character(mnt)
+      
+      # Subset variables by month
+      Tmax <- monthly_vals %>% 
+        filter(MONTH == mnt) %>% 
+        select(Tmax) %>% 
+        as.numeric()
+      Tmin <- monthly_vals %>% 
+        filter(MONTH == mnt) %>% 
+        select(Tmin) %>% 
+        as.numeric()
+      CO2 <- CO2.sub %>% 
+        filter(month == mnt) %>% 
+        select(CO2) %>% 
+        as.numeric()
+      
+      # e_s: saturation vapour pressure [kPa] 
+      e_s <- (degC_to_kPa.fun(temp=Tmax)+degC_to_kPa.fun(temp=Tmin))/2
+      
+      # e_a: derived from dewpoint temperature [kPa]
+      e_a <- degC_to_kPa.fun(temp=Tmin)
+      
+      # VPD: Vapour pressure deficit [kPa]
+      VPD <- e_s-e_a
+      iVPD <- VPD.fun(VPD, VPD_min, VPD_max)
+      
+      # Modify atmospheric CO2 with stomatal conductance (VPD) function
+      ci <- as.numeric(CO2*iVPD)
+      
+      # Store monthly values
+      ci_GS <- c(ci_GS,ci)
+    }
+    
+    # Store annual (growing season) value
+    pheno.sub$ci <- sum(ci_GS)
+    
+    # Bind final datasets
+    ci.df <- rbind(ci.df,pheno.sub)
     print(paste0("RUN: ",which(ty==timeseries_year)," OF ",length(timeseries_year)))
   }
 }
@@ -793,8 +911,8 @@ E_max               <- 5 # maximum transpiration rate that can be sustained unde
 #PHOTOSYNTHESIS-CONDUCTANCE MODEL (modified by Sitch. et al. 2003)
 
 # Initialize dataframe
-photosynthesis.cum  <- data.frame()
-photosynthesis_daily.cum  <- data.frame()
+photosynthesis.df  <- data.frame()
+photosynthesis_daily.df  <- data.frame()
 
 # Get timeseries
 timeseries_year <- unique(DataList[[6]]$ts_yr)
@@ -1109,11 +1227,10 @@ for(ty in timeseries_year) {
     photosynthesis.sub$cR_d <- cR_d
     
     # Bind final datasets
-    photosynthesis.cum  <- rbind(photosynthesis.cum,photosynthesis.sub)
-    photosynthesis_daily.cum  <- rbind(photosynthesis_daily.cum,photosynthesis_daily.sub)
+    photosynthesis.df  <- rbind(photosynthesis.df,photosynthesis.sub)
+    photosynthesis_daily.df  <- rbind(photosynthesis_daily.df,photosynthesis_daily.sub)
     
     print(paste0("RUN: ",ty," => ",which(timeseries_year==ty)," OF ",length(timeseries_year)))
-    return(photosynthesis_daily.sub)
   }
 }
 
@@ -1158,6 +1275,7 @@ drivers.df$HRD <- Factors.df$HRD
 drivers.df$HD35 <- Factors.df$HD35
 drivers.df$FD <- Factors.df$FD
 drivers.df$FD_spring <- Factors.df$FD_spring
+drivers.df$ci <- ci.df$ci
 drivers.df$cGSI <- GSI$cGSI
 drivers.df$`cA_tot-w` <- photosynthesis.cum$cA_tot
 drivers.df$cA_tot <- photosynthesis.cum$cA_totw

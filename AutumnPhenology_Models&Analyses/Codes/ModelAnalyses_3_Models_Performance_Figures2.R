@@ -22,12 +22,17 @@ library(lmodel2)
 library(ggplot2)
 library(phenor)
 
+# Define auxiliary functions
+se <- function(x) sqrt(var(x)/length(x))
+
 
 ##----------------------------------------
 ## Calculation of Performance Indexes
 
 # Import data
 pred_DoYoff <- fread("ModelAnalysis_1_Predicted_DoYoff.csv")
+pred_DoYoff <- pred_DoYoff %>% 
+  filter(Species != "Betula pubescens")
 
 # Define model names
 model.names   <- c("CDD","DM1","DM2","TPM",
@@ -105,277 +110,6 @@ for(ts in timeseries) {
 
 # Export dataset
 write.table(performance_stats,"ModelAnalysis_3_Performance_R2_RMSE_slope.csv",sep=";",row.names=F)
-
-
-##----------------------------------------
-## Model Performance
-
-## FIGURE 2A
-# Observed (Obs_AnomDoYoff) vs.
-# Predicted (Pred_AnomDoYoff)
-# leaf senescence anomalies, i.e., as deviation from the mean observed leaf-out date at each site
-# of the best-performing first-generation (TPM) [Lang et al. (2019)], 
-# second-generation (TPDM) [Liu et al. (2019)]
-# and CarbLim models (PIAM)
-
-# Import data
-pred_DoYoff <- fread("ModelAnalysis_1_Predicted_DoYoff.csv")
-
-# Select autumn anomalies from best-performing models
-best_pred_DoYoff <- pred_DoYoff %>% 
-  select(Obs_AnomDoYoff,Pred_AnomDoYoff_TPM,Pred_AnomDoYoff_TPDM,`Pred_AnomDoYoff_PIA+`)
-
-# Format dataset for plotting
-types <- c("First-generation (TPM)","Second-generation (TPDM)","CarbLim model (PIA+)")
-colnames(best_pred_DoYoff) <- c("observations",types)
-best_pred_DoYoff <- best_pred_DoYoff %>% 
-  pivot_longer(-observations,names_to="model_type",values_to="predictions")
-best_pred_DoYoff$model_type <- factor(best_pred_DoYoff$model_type, levels=types)
-
-# Define palette
-paletteBlueRed <- c("blue3","white","red3")
-
-# Plot
-fig_2a <- ggplot(best_pred_DoYoff, aes(x=predictions, y=observations)) +
-  stat_bin2d(bins=235) +
-  labs(x = "Predicted autumn anomaly",
-       y = "Observed autumn anomaly") +
-  coord_cartesian(xlim=c(-50,50), ylim=c(-50,50))+
-  scale_fill_gradientn(colours = paletteBlueRed,
-                       limits = c(10,2300),
-                       breaks = c(100,1200,2200)) +
-  geom_abline(slope=1, intercept=0,
-              na.rm = FALSE, show.legend = NA, linetype="dashed") +
-  theme(aspect.ratio=1,
-        legend.position = "right",
-        plot.title=element_text(hjust=.5),
-        axis.title.y=element_text(size=14),
-        axis.text.y=element_text(size=11),
-        axis.title.x=element_text(size=14),
-        axis.text.x=element_text(size=11),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_rect(fill = 'white', colour = 'black'),
-        plot.margin = unit(c(0, 0, 0, 0), "cm")
-  ) + 
-  facet_wrap(.~model_type, ncol=3)
-fig_2a
-
-# Add R^2 values
-# Average across time-series
-# See Figure 2B
-dat_text <- data.frame(
-  label = c("R2 = 0.21", "R2 = 0.62", "R2 = 0.78"), #check R2_models (Figure 2B)
-  model_type = types
-)
-fig_2a  <- fig_2a + geom_text(
-  data = dat_text,
-  mapping = aes(x=-35, y=45, label=label)
-)
-
-# Calculate intercept plus slope by Standard Major Axis (SMA)
-SMA_values <- best_pred_DoYoff %>%  
-  group_by(model_type) %>% 
-  summarise(int=lmodel2(observations ~ predictions)$regression.results$Intercept[3],
-            slope=lmodel2(observations ~ predictions)$regression.results$Slope[3])
-fig_2a <- fig_2a +
-  geom_abline(data = SMA_values,
-              mapping = aes(intercept=int,slope=slope),
-              linetype = "solid")
-fig_2a
-
-
-## FIGURE 2B
-# R^2 values
-
-# Import data
-stat_models <- fread("Models_Performance_R2_RMSE_slope_v2.csv")
-
-# Define model names
-model.names   <- c("CDD","DM1","DM2","TPM",
-                   "SIAM","TDM","TPDM",
-                   "PIA_gsi","PIA+")
-
-# Define model types
-types = c(rep("First-generation",4),
-          rep("Second-generation",3),
-          rep("PIA models",2))
-
-# Select R^2 values
-R2_models <- stat_models %>% 
-  select(R2_CDD,R2_DM1,R2_DM2,R2_TPM,
-         R2_SIAM,R2_TDM,R2_TPDM,
-         R2_PIAgsi,`R2_PIA+`)
-
-# Format dataset for plotting
-colnames(R2_models) <- c(model.names)
-R2_models <- R2_models %>% 
-  pivot_longer(model.names,names_to="Model",values_to="value")
-R2_models$Model <- factor(R2_models$Model, levels=model.names)
-R2_models <- R2_models %>% 
-  group_by(Model) %>% 
-  summarise(R2_mean = mean(value),
-            R2_sd = sd(value)) %>% 
-  mutate(Type=types)
-R2_models$Type <- factor(R2_models$Type, levels=c("First-generation","Second-generation","PIA models"))
-
-# Define palette
-trio <- c("#56B4E9","#E69F00","#74C476")
-
-# Plot
-fig_2b <- ggplot(R2_models, aes(x=Model, y=R2_mean)) +
-  geom_bar(position=position_dodge(), stat="identity", width=.9,
-           fill=c("#56B4E9","#56B4E9","#56B4E9","#56B4E9",
-                  "#E69F00","#E69F00","#E69F00",
-                  "#74C476","#74C476")) +
-  geom_errorbar(aes(ymin=R2_mean-R2_sd, ymax=R2_mean+R2_sd),
-                width=.2,
-                position=position_dodge(.9)) +
-  labs(y = expression(paste("Coefficient of determination ( ", R^2, ")"))) +
-  scale_x_discrete(limits=model.names) +
-  scale_color_manual(values=trio) +
-  coord_cartesian(ylim=c(0.045,0.955))+
-  theme(aspect.ratio = 0.3,
-        axis.title.y=element_text(size=14, vjust=1),
-        axis.text.y=element_text(size=11),
-        axis.ticks.y=element_line(size=.3),
-        axis.title.x=element_blank(),
-        axis.text=element_blank(),
-        axis.ticks=element_blank(),
-        legend.position="none",
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_rect(fill = 'white', colour = 'black'),
-        panel.border = element_rect(fill=NA,colour = "black")
-  )
-fig_2b
-
-
-## FIGURE 2C
-# RMSE values
-# for predictive models (solid-color-boxes)
-# cross-validation at the time-series level (solid-black-lines)
-# and for NULL model (dashed-black-line)
-
-# Select RMSE values
-RMSE_models <- stat_models %>% 
-  select(timeseries,RMSE_CDD,RMSE_DM1,RMSE_DM2,RMSE_TPM,
-         RMSE_SIAM,RMSE_TDM,RMSE_TPDM,
-         RMSE_PIAgsi,`RMSE_PIA+`)
-
-# Import RMSE values from cross-validation
-RMSE_xval <- fread("ModelAnalysis_4_CrossValidation_RMSE.csv")
-RMSE_xval <- RMSE_xval %>% 
-  select(-timeseries,-`RMSE_PIA-`)
-colnames(RMSE_xval) <- c("Species",model.names)
-
-# Calculate average xval-RMSE across timeseries
-RMSE_xval <- RMSE_xval %>% 
-  pivot_longer(-Species,names_to="Model",values_to="rmse_xval")
-RMSE_xval$Model <- factor(RMSE_xval$Model, levels=model.names)
-RMSE_xval <- RMSE_xval %>% 
-  group_by(Model) %>% 
-  summarise(xval_median=median(rmse_xval),
-            xval_mean=mean(rmse_xval),
-            xval_sd=sd(rmse_xval))
-
-# Format dataset for plotting
-colnames(RMSE_models) <- c("timeseries",model.names)
-RMSE_models <- RMSE_models %>% 
-  pivot_longer(-timeseries,names_to="Model",values_to="value")
-RMSE_models$Model <- factor(RMSE_models$Model, levels=model.names)
-RMSE_models <- RMSE_models %>% 
-  group_by(Model) %>% 
-  summarise(Min=min(value),
-            Q1=quantile(value,.25),
-            Avg=mean(value),
-            Median=median(value),
-            Q3=quantile(value,.75),
-            Max=max(value)) %>% 
-  mutate(xval_median=RMSE_xval$xval_median,
-         xval_mean=RMSE_xval$xval_mean,
-         xval_sd=RMSE_xval$xval_sd) %>% 
-  mutate(Type=types)
-RMSE_models$Type <- factor(RMSE_models$Type, levels=c("First-generation","Second-generation","PIA models"))
-
-# Calculate RMSE according to null model
-RMSE_null <- rmse(rep(mean(pred_DoYoff$Obs_DoYoff),nrow(pred_DoYoff)), pred_DoYoff$Obs_DoYoff)
-
-# Define palette
-trio <- c("#56B4E9","#E69F00","#74C476")
-
-# Plot
-fig_2c <- ggplot(RMSE_models, aes(x=Model, y=xval_median, color=Type)) +
-  # RMSE values for predictive models
-  geom_errorbar(aes(ymin=Min,ymax=Max),linetype=1, width=0, size=0.4) + 
-  geom_crossbar(aes(y=Median,ymin=Q1,ymax=Q3), fill="grey90", linetype=1, size=0.4) + 
-  # RMSE values for cross-validation at the time-series level
-  geom_crossbar(ymin=RMSE_models$xval_median,ymax=RMSE_models$xval_median, color="black", size=0.2) +
-  labs(y="RMSE") +
-  scale_x_discrete(limits=model.names) +
-  scale_color_manual(values=trio) +
-  coord_cartesian(ylim=c(0.045,14.955))+
-  # RMSE for NULL model
-  geom_hline(aes(yintercept=RMSE_null), linetype="dashed") +
-  theme(aspect.ratio = 0.3,
-        axis.title.y=element_text(size=14, vjust=1),
-        axis.text.y=element_text(size=11),
-        axis.ticks.y=element_line(size=.4),
-        axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank(),
-        legend.position="none",
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_rect(fill = 'white', colour = 'black')
-  )
-fig_2c
-
-
-## FIGURE 2D
-# slope values
-
-# Select slope values
-slope_models <- stat_models %>%
-  select(slope_CDD,slope_DM1,slope_DM2,slope_TPM,
-         slope_SIAM,slope_TDM,slope_TPDM,
-         slope_PIAgsi,`slope_PIA+`)
-
-# Format dataset for plotting
-colnames(slope_models) <- c(model.names)
-slope_models <- slope_models %>%
-  pivot_longer(model.names,names_to="Model",values_to="value")
-slope_models$Model <- factor(slope_models$Model, levels=model.names)
-slope_models <- slope_models %>%
-  mutate(Type=rep(types,nrow(stat_models)))
-slope_models$Type <- factor(slope_models$Type, levels=c("First-generation","Second-generation","PIA models"))
-
-# Plot
-fig_2d <- ggplot(slope_models, aes(x=Model, y=value, color=Type)) +
-  geom_boxplot(fill="grey90",outlier.shape = NA) +
-  labs(y="Slope values") +
-  scale_x_discrete(limits=model.names) +
-  scale_color_manual(values=trio) +
-  coord_cartesian(ylim=c(0.045,1.955))+
-  geom_hline(aes(yintercept=1), linetype="dashed") +
-  theme(aspect.ratio = 0.3,
-        axis.title.y=element_text(size=14, vjust=1),
-        axis.text.y=element_text(size=11),
-        axis.ticks.y=element_line(size=.3),
-        axis.title.x=element_blank(),
-        axis.text.x=element_text(angle=45, hjust=1, size=11),
-        axis.ticks.x=element_line(size=.3),
-        legend.title=element_blank(),
-        legend.text=element_text(size=13),
-        legend.spacing.x=unit(0.10,"cm"),
-        legend.key=element_blank(),
-        legend.position="bottom",
-        legend.direction="horizontal",
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_rect(fill = 'white', colour = 'black')
-  )
-fig_2d
 
 
 ##----------------------------------------
@@ -1003,6 +737,451 @@ write.table(Xval.df,"ModelAnalysis_4_CrossValidation_RMSE.csv",sep=";",row.names
 
 
 ##----------------------------------------
+## Model Performance
+
+## FIGURE 3A
+# Observed (Obs_AnomDoYoff) vs.
+# Predicted (Pred_AnomDoYoff)
+# leaf senescence anomalies, i.e., as deviation from the mean observed leaf-out date at each site
+# of the best-performing first-generation (TPM) [Lang et al. (2019)], 
+# second-generation (TPDM) [Liu et al. (2019)]
+# and CarbLim models (PIAM)
+
+# Import data
+pred_DoYoff <- fread("ModelAnalysis_1_Predicted_DoYoff.csv")
+pred_DoYoff <- pred_DoYoff %>% 
+  filter(Species != "Betula pubescens")
+
+# Select autumn anomalies from best-performing models
+best_pred_DoYoff <- pred_DoYoff %>% 
+  select(Obs_AnomDoYoff,Pred_AnomDoYoff_TPM,Pred_AnomDoYoff_TPDM,`Pred_AnomDoYoff_PIA+`)
+
+# Format dataset for plotting
+types <- c("First-generation (TPM)","Second-generation (TPDM)","CarbLim model (PIA+)")
+colnames(best_pred_DoYoff) <- c("observations",types)
+best_pred_DoYoff <- best_pred_DoYoff %>% 
+  pivot_longer(-observations,names_to="model_type",values_to="predictions")
+best_pred_DoYoff$model_type <- factor(best_pred_DoYoff$model_type, levels=types)
+
+# Define palette
+paletteBlueRed <- c("blue3","white","red3")
+
+# Plot
+fig_3a <- ggplot(best_pred_DoYoff, aes(x=predictions, y=observations)) +
+  stat_bin2d(bins=235) +
+  labs(x = "Predicted autumn anomaly",
+       y = "Observed autumn anomaly") +
+  coord_cartesian(xlim=c(-50,50), ylim=c(-50,50))+
+  scale_fill_gradientn(colours = paletteBlueRed,
+                       limits = c(10,2300),
+                       breaks = c(100,1200,2200)) +
+  geom_abline(slope=1, intercept=0,
+              na.rm = FALSE, show.legend = NA, linetype="dashed") +
+  theme(aspect.ratio=1,
+        legend.position = "right",
+        plot.title=element_text(hjust=.5),
+        axis.title.y=element_text(size=14),
+        axis.text.y=element_text(size=11),
+        axis.title.x=element_text(size=14),
+        axis.text.x=element_text(size=11),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = 'white', colour = 'black'),
+        plot.margin = unit(c(0, 0, 0, 0), "cm")
+  ) + 
+  facet_wrap(.~model_type, ncol=3)
+fig_3a
+
+# Add R^2 values
+# Average across time-series
+# See Figure 2B
+dat_text <- data.frame(
+  label = c("R2 = 0.21", "R2 = 0.62", "R2 = 0.78"), #check R2_models (Figure 3B)
+  model_type = types
+)
+fig_3a  <- fig_3a + geom_text(
+  data = dat_text,
+  mapping = aes(x=-35, y=45, label=label)
+)
+
+# Calculate intercept plus slope by Standard Major Axis (SMA)
+SMA_values <- best_pred_DoYoff %>%  
+  group_by(model_type) %>% 
+  summarise(int=lmodel2(observations ~ predictions)$regression.results$Intercept[3],
+            slope=lmodel2(observations ~ predictions)$regression.results$Slope[3])
+fig_3a <- fig_3a +
+  geom_abline(data = SMA_values,
+              mapping = aes(intercept=int,slope=slope),
+              linetype = "solid")
+fig_3a
+
+
+## FIGURE 3B
+# R^2 values
+
+# Define auxiliary function to calculate standard error
+se <- function(x) sqrt(var(x)/length(x))
+
+# Import data
+stat_models <- fread("ModelAnalysis_3_Performance_R2_RMSE_slope.csv")
+stat_models <- stat_models %>% 
+  filter(Species != "Betula pubescens")
+
+# Define model names
+model.names   <- c("CDD","DM1","DM2","TPM",
+                   "SIAM","TDM","TPDM",
+                   "PIA_gsi","PIA+")
+
+# Define model types
+types = c(rep("First-generation",4),
+          rep("Second-generation",3),
+          rep("PIA models",2))
+
+# Select R^2 values
+R2_models <- stat_models %>% 
+  select(R2_CDD,R2_DM1,R2_DM2,R2_TPM,
+         R2_SIAM,R2_TDM,R2_TPDM,
+         R2_PIAgsi,`R2_PIA+`)
+
+# Format dataset for plotting
+colnames(R2_models) <- c(model.names)
+R2_models <- R2_models %>% 
+  pivot_longer(model.names,names_to="Model",values_to="value")
+R2_models$Model <- factor(R2_models$Model, levels=model.names)
+R2_models <- R2_models %>% 
+  group_by(Model) %>% 
+  summarise(R2_mean = mean(value),
+            R2_se = se(value)) %>% 
+  mutate(Type=types)
+R2_models$Type <- factor(R2_models$Type, levels=c("First-generation","Second-generation","PIA models"))
+
+# Define palette
+trio <- c("#56B4E9","#E69F00","#74C476")
+
+# Plot
+fig_3b <- ggplot(R2_models, aes(x=Model, y=R2_mean)) +
+  geom_bar(position=position_dodge(), stat="identity", width=.9,
+           fill=c("#56B4E9","#56B4E9","#56B4E9","#56B4E9",
+                  "#E69F00","#E69F00","#E69F00",
+                  "#74C476","#74C476")) +
+  geom_errorbar(aes(ymin=R2_mean-R2_se, ymax=R2_mean+R2_se),
+                width=.2,
+                position=position_dodge(.9)) +
+  labs(y = expression(paste("Coefficient of determination ( ", R^2, ")"))) +
+  scale_x_discrete(limits=model.names) +
+  scale_color_manual(values=trio) +
+  coord_cartesian(ylim=c(0.045,0.955))+
+  theme(aspect.ratio = 0.3,
+        axis.title.y=element_text(size=14, vjust=1),
+        axis.text.y=element_text(size=11),
+        axis.ticks.y=element_line(size=.3),
+        axis.title.x=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank(),
+        legend.position="none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = 'white', colour = 'black'),
+        panel.border = element_rect(fill=NA,colour = "black")
+  )
+fig_3b
+
+
+## FIGURE 3C
+# RMSE values
+# for predictive models (solid-color-boxes)
+# cross-validation at the time-series level (solid-black-lines)
+# and for NULL model (dashed-black-line)
+
+# Select RMSE values
+RMSE_models <- stat_models %>% 
+  select(timeseries,RMSE_CDD,RMSE_DM1,RMSE_DM2,RMSE_TPM,
+         RMSE_SIAM,RMSE_TDM,RMSE_TPDM,
+         RMSE_PIAgsi,`RMSE_PIA+`)
+
+# Import RMSE values from cross-validation
+RMSE_xval <- fread("ModelAnalysis_4_CrossValidation_RMSE.csv")
+RMSE_xval <- RMSE_xval %>% 
+  filter(Species!="Betula pubescens")
+RMSE_xval <- RMSE_xval %>% 
+  select(-timeseries,-`RMSE_PIA-`)
+colnames(RMSE_xval) <- c("Species",model.names)
+
+# Calculate average xval-RMSE across timeseries
+RMSE_xval <- RMSE_xval %>% 
+  pivot_longer(-Species,names_to="Model",values_to="rmse_xval")
+RMSE_xval$Model <- factor(RMSE_xval$Model, levels=model.names)
+RMSE_xval <- RMSE_xval %>% 
+  group_by(Model) %>% 
+  summarise(xval_median=median(rmse_xval),
+            xval_mean=mean(rmse_xval),
+            xval_sd=sd(rmse_xval))
+
+# Format dataset for plotting
+colnames(RMSE_models) <- c("timeseries",model.names)
+RMSE_models <- RMSE_models %>% 
+  pivot_longer(-timeseries,names_to="Model",values_to="value")
+RMSE_models$Model <- factor(RMSE_models$Model, levels=model.names)
+RMSE_models <- RMSE_models %>% 
+  group_by(Model) %>% 
+  summarise(Min=min(value),
+            Q1=quantile(value,.25),
+            Avg=mean(value),
+            Median=median(value),
+            Q3=quantile(value,.75),
+            Max=max(value)) %>% 
+  mutate(xval_median=RMSE_xval$xval_median,
+         xval_mean=RMSE_xval$xval_mean,
+         xval_sd=RMSE_xval$xval_sd) %>% 
+  mutate(Type=types)
+RMSE_models$Type <- factor(RMSE_models$Type, levels=c("First-generation","Second-generation","PIA models"))
+
+# Calculate RMSE according to null model
+RMSE_null <- Metrics::rmse(rep(mean(pred_DoYoff$Obs_DoYoff),nrow(pred_DoYoff)), pred_DoYoff$Obs_DoYoff)
+
+# Define palette
+trio <- c("#56B4E9","#E69F00","#74C476")
+
+# Plot
+fig_3c <- ggplot(RMSE_models, aes(x=Model, y=xval_median, color=Type)) +
+  # RMSE values for predictive models
+  geom_errorbar(aes(ymin=Min,ymax=Max),linetype=1, width=0, size=0.4) + 
+  geom_crossbar(aes(y=Median,ymin=Q1,ymax=Q3), fill="grey90", linetype=1, size=0.4) + 
+  # RMSE values for cross-validation at the time-series level
+  geom_crossbar(ymin=RMSE_models$xval_median,ymax=RMSE_models$xval_median, color="black", size=0.2) +
+  labs(y="RMSE") +
+  scale_x_discrete(limits=model.names) +
+  scale_color_manual(values=trio) +
+  coord_cartesian(ylim=c(0.045,14.955))+
+  # RMSE for NULL model
+  geom_hline(aes(yintercept=RMSE_null), linetype="dashed") +
+  theme(aspect.ratio = 0.3,
+        axis.title.y=element_text(size=14, vjust=1),
+        axis.text.y=element_text(size=11),
+        axis.ticks.y=element_line(size=.4),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        legend.position="none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = 'white', colour = 'black')
+  )
+fig_3c
+
+
+## FIGURE 3D
+# slope values
+
+# Select slope values
+slope_models <- stat_models %>%
+  select(slope_CDD,slope_DM1,slope_DM2,slope_TPM,
+         slope_SIAM,slope_TDM,slope_TPDM,
+         slope_PIAgsi,`slope_PIA+`)
+
+# Format dataset for plotting
+colnames(slope_models) <- c(model.names)
+slope_models <- slope_models %>%
+  pivot_longer(model.names,names_to="Model",values_to="value")
+slope_models$Model <- factor(slope_models$Model, levels=model.names)
+slope_models <- slope_models %>%
+  mutate(Type=rep(types,nrow(stat_models)))
+slope_models$Type <- factor(slope_models$Type, levels=c("First-generation","Second-generation","PIA models"))
+
+# Plot
+fig_3d <- ggplot(slope_models, aes(x=Model, y=value, color=Type)) +
+  geom_boxplot(fill="grey90",outlier.shape = NA) +
+  labs(y="Slope values") +
+  scale_x_discrete(limits=model.names) +
+  scale_color_manual(values=trio) +
+  coord_cartesian(ylim=c(0.045,1.955))+
+  geom_hline(aes(yintercept=1), linetype="dashed") +
+  theme(aspect.ratio = 0.3,
+        axis.title.y=element_text(size=14, vjust=1),
+        axis.text.y=element_text(size=11),
+        axis.ticks.y=element_line(size=.3),
+        axis.title.x=element_blank(),
+        axis.text.x=element_text(angle=45, hjust=1, size=11),
+        axis.ticks.x=element_line(size=.3),
+        legend.title=element_blank(),
+        legend.text=element_text(size=13),
+        legend.spacing.x=unit(0.10,"cm"),
+        legend.key=element_blank(),
+        legend.position="bottom",
+        legend.direction="horizontal",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = 'white', colour = 'black')
+  )
+fig_3d
+
+# Combine and export image
+library(egg)
+library(grid)
+
+jpeg("Figure3.jpeg", width = 5.8*4, height = 5.8*5, units = "cm", res=600)
+ggarrange(fig_3a,fig_3b,fig_3c,fig_3d,
+          nrow=4)
+grid.text("a", x=unit(0.94, "npc"), y=unit(0.99, "npc"),
+          gp=gpar(fontface="bold", fontsize=18))
+grid.text("b", x=unit(0.94, "npc"), y=unit(0.71, "npc"),
+          gp=gpar(fontface="bold", fontsize=18))
+grid.text("c", x=unit(0.94, "npc"), y=unit(0.5, "npc"),
+          gp=gpar(fontface="bold", fontsize=18))
+grid.text("d", x=unit(0.94, "npc"), y=unit(0.285, "npc"),
+          gp=gpar(fontface="bold", fontsize=18))
+dev.off()
+
+
+##----------------------------------------
+## Summary statistics
+
+# Load datasets
+stat_models <- fread("ModelAnalysis_3_Performance_R2_RMSE_slope.csv")
+stat_models <- stat_models %>% 
+  filter(Species != "Betula pubescens")
+RMSE_xval <- fread("ModelAnalysis_4_CrossValidation_RMSE.csv")
+RMSE_xval <- RMSE_xval %>% 
+  filter(Species!="Betula pubescens")
+
+# Calculate means and standard deviations across timeseries
+stat.df <- stat_models[complete.cases(stat_models[,-c(1,2)]),-c(1,2)]
+colMeans(stat.df)
+sapply(stat.df, sd)
+sapply(stat.df, se)
+colMeans(RMSE_xval[,-c(1,2)])
+sapply(RMSE_xval[,-c(1,2)], sd)
+sapply(RMSE_xval[,-c(1,2)], se)
+
+
+##----------------------------------------
+## Photosynthesis model validation
+# N.B.: 
+# modelled NPP corresponds to cAtot (i.e. growing-season net photosynthesis)
+# "observed" NPP corresponds to predictions from satellite-data-driven net primary productivity models 
+
+# Import dataset (modelled NPP)
+drivers.df <- fread("DataMeta_3_Drivers.csv")
+npp_model.df <- drivers.df %>% 
+  select(timeseries,PEP_ID,LON,LAT,YEAR,DoY_off,cA_tot) %>% 
+  filter(YEAR %in% 2000:2014) %>% 
+  arrange(-desc(PEP_ID))
+
+# Get locations
+locations <- unique(npp_model.df$PEP_ID)
+
+# Import dataset (NPP from satellite observations)
+# MOD17A3.055: Terra Net Primary Production Yearly Global 1km (RUnning et al., 2011)
+npp_modis.df <- fread("NPP_Terra1_Extracted.csv") %>% 
+  filter(PEP_ID %in% locations) %>% 
+  pivot_longer(cols=-c(PEP_ID,LON,LAT),names_to="YEAR",values_to="NPP") %>% 
+  arrange(-desc(PEP_ID))
+
+# Control for overlapping locations
+satellite_sites <- data.table(sites=unique(npp_modis.df$PEP_ID))
+satellite_sites[,merge:=sites]
+pheno_sites <- data.table(sites=unique(npp_model.df$PEP_ID))
+pheno_sites[,merge:=sites]
+setkeyv(satellite_sites,c('merge'))
+setkeyv(pheno_sites,c('merge'))
+
+# Find location id (PEP_ID) of the closest satellite location
+overlap_sites <- satellite_sites[pheno_sites,roll='nearest']
+overlap_sites <- overlap_sites[which(overlap_sites$sites!=overlap_sites$merge),1:2]
+
+# Add PEP_ID for the overlapping location
+npp_model.df$PEP_ID_overlap <- npp_model.df$PEP_ID
+npp_model.df$PEP_ID_overlap <- mapvalues(npp_model.df$PEP_ID_overlap,overlap_sites$merge,overlap_sites$sites)
+
+# Exclude sites outside of forested areas
+# Read forest cover map (Hansen et al., 2013)
+library(raster)
+forest <- raster("Hansen_ForestCover_2000_CCgte10_30ArcSec.tif")
+
+# Extract forest cover information and exclude sites with no cover
+npp_modis.df <- data.frame(npp_modis.df, forestCover=raster::extract(forest, npp_modis.df[, c("LON", "LAT")])) %>% 
+  filter(forestCover == 1)
+npp_model.df <- npp_model.df %>% 
+  filter(PEP_ID %in% unique(npp_modis.df$PEP_ID))
+detach("package:raster", unload=TRUE)
+
+# Keep sites with deciduous forests
+# MCD12Q1.006 MODIS Land Cover Type Yearly Global 500m 
+dec_forests <- fread("LandCover_LAI_Extracted.csv") 
+
+# Select locations with Type 6
+# Deciduous Broadleaf Vegetation: 
+# dominated by deciduous broadleaf trees and shrubs (>1m)
+dec_locations <- which(rowMeans(dec_forests[,-c(1:3,19:21)])==6)
+dec_locations <- dec_forests[dec_locations,]$PEP_ID
+npp_model.df <- npp_model.df %>% 
+  filter(PEP_ID %in% dec_locations)
+npp_modis.df <- npp_modis.df %>% 
+  filter(PEP_ID %in% dec_locations)
+
+# Join NPP values
+NPP.df <- npp_model.df %>%
+  left_join(.,npp_modis.df,by="PEP_ID") %>%
+  select(timeseries,PEP_ID,cA_tot,NPP) %>%
+  rename(Observed = NPP, Modelled = cA_tot)
+
+# Plot
+library(ggplot2)
+library(caTools)
+library(lmodel2)
+library(Metrics)
+library(ggpubr)
+library(scales)
+
+# Define palette
+paletteForUse <- c('#d10000', '#ff6622', '#ffda21', '#33dd00', '#1133cc', '#220066', '#330044')
+colors <-  colorRampPalette(paletteForUse)(256)
+
+# Use densCols() output to get density at each point
+NPP.df$dens <- col2rgb(densCols(NPP.df$Observed, NPP.df$Modelled))[1,] + 1L
+
+# Map densities to colors
+NPP.df$colors = colors[NPP.df$dens]
+
+# Calculate predicted vs. observed R2, RMSE and slope 
+fit <- lmodel2(NPP.df$Observed~NPP.df$Modelled)
+R2 <- fit$rsquare
+RMSE <- rmse(NPP.df$Modelled,NPP.df$Observed)
+Intercept <- fit$regression.results$Intercept[3] #standardized major axis regression
+Slope <- fit$regression.results$Slope[3] #standardized major axis regression
+
+# Plot
+# SUPPLEMENTARY FIGURE 8 (Fig. S8)
+fig_s8 <- NPP.df %>% 
+  ggplot(aes(x = Modelled, y = Observed)) +
+  geom_point(color = NPP.df$colors,
+             size = 2) +
+  geom_abline() +
+  geom_abline(slope = Slope,
+              intercept = Intercept,
+              linetype="dashed") +
+  scale_x_continuous(labels = comma) +
+  scale_y_continuous(labels = comma) +
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        panel.grid = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(y = "NPP (MODIS)", x = "Modelled NPP")
+fig_s8 <- fig_s8 +
+  geom_text(mapping = aes(x = 8000, y = 5000),
+            label = paste0("R2 = ", round(R2_site,2),
+                           "\n Slope = ", round(Slope,2),
+                           "\nRMSE = ", round(RMSE,2),
+                           "\nN = ",nrow(NPP.df)),
+            size = 2.75) 
+fig_s8
+ggsave(filename = "FigureS8.jpeg",
+       device = "jpeg",
+       width = 5.8*2, units = "cm",
+       dpi = 600)
+
+
+##----------------------------------------
 ## References
 
 # Dufrêne, E. et al. Modelling carbon and water cycles in a beech forest: Part I: Model description and uncertainty analysis on modelled NEE. Ecol. Modell. 185, 407-436 (2005).
@@ -1011,3 +1190,5 @@ write.table(Xval.df,"ModelAnalysis_4_CrossValidation_RMSE.csv",sep=";",row.names
 # Lang, W., Chen, X., Qian, S., Liu, G. & Piao, S. A new process-based model for predicting autumn phenology: How is leaf senescence controlled by photoperiod and temperature coupling? Agric. For. Meteorol. 268, 124-135 (2019).
 # Liu, G., Chen, X., Fu, Y. & Delpierre, N. Modelling leaf coloration dates over temperate China by considering effects of leafy season climate. 460 Ecol. Modell. 394, 34-43 (2019).
 # Hufkens, K., Basler, D., Milliman, T., Melaas, E. K. & Richardson, A. D. An integrated phenology modelling framework in r. Methods Ecol. Evol. 9, 1276-1285 (2018).
+# Running, S., Mu, Q., Zhao, M. MOD17A3 MODIS/Terra Net Primary Production Yearly L4 Global 1 km SIN Grid V055. NASA EOSDIS L. Process. DAAC (2011).
+# Hansen, M. C., et al. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science (80-. ). 850, 2011-2014 (2013).

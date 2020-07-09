@@ -1,4 +1,4 @@
-# This repository contains the code used for the analyses in the paper "Increased growing season productivity drives earlier autumn leaf senescence in temperate trees"
+# This repository contains the code used for the analyses in the paper "Increased growing-season productivity drives earlier autumn leaf senescence in temperate trees"
 
 ### The code is organized as follows:
 - The folder titled "AutumnPhenology_Data&Metadata" contains data (and related code scripts) on:

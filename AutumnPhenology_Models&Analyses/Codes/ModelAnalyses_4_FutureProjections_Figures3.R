@@ -351,7 +351,7 @@ paletteSoftRainbow <- c("#ABDAF4","#2b5a74",
                         "#C7E9C0","#006D2C")
 
 # Plot future leaf senescence dates
-fig_3a <- ggplot(future_doyoff.df, aes(x=YEAR, y=round(roll_DoY), colour=Model))+
+fig_4a <- ggplot(future_doyoff.df, aes(x=YEAR, y=round(roll_DoY), colour=Model))+
   labs(x = "Year", y = "Leaf senescence (DoY)") +
   geom_line(size=.5) +
   coord_cartesian(xlim=c(2022,2096.5), ylim=c(260,307))+
@@ -377,10 +377,10 @@ fig_3a <- ggplot(future_doyoff.df, aes(x=YEAR, y=round(roll_DoY), colour=Model))
   geom_ribbon(aes(ymin=roll_DoY-sd_DoY, ymax=roll_DoY+sd_DoY, group=Model), 
               linetype=0, colour="grey", alpha=0.07) +
   geom_text(aes(x=2025,y=305,label="a"),size=4,color="black",fontface="bold")
-fig_3a
+fig_4a
 
 # Plot future growing season length
-fig_3c <- ggplot(future_GSL.df, aes(x=YEAR, y=round(roll_GSL), colour=Model))+
+fig_4c <- ggplot(future_GSL.df, aes(x=YEAR, y=round(roll_GSL), colour=Model))+
   labs(x = "Year", y = "Growing season length (days)") +
   geom_line(size=.5) +
   coord_cartesian(xlim=c(2022,2096.5), ylim=c(162,215))+
@@ -406,11 +406,10 @@ fig_3c <- ggplot(future_GSL.df, aes(x=YEAR, y=round(roll_GSL), colour=Model))+
   geom_ribbon(aes(ymin=roll_GSL-sd_GSL, ymax=roll_GSL+sd_GSL, group=Model), 
               linetype=0, colour="grey", alpha=0.07) +
   geom_text(aes(x=2025,y=213,label="c"),size=4,color="black",fontface="bold")
-fig_3c
+fig_4c
 
 
-## FIGURE 3B
-# Estimated delays in leaf senescence by the end of the 21st century (2080-2100) 
+## Estimated delays in leaf senescence by the end of the 21st century (2080-2100) 
 # compared to the average senescence dates between 1990-2010
 
 # Select future senescence dates/growing season length (2080-2100 range)
@@ -499,7 +498,7 @@ change_GSL <- futpast_GSLs %>%
             change_se=se(change))
 
 # Plot leaf senescence delay
-fig_3b <- ggplot(data=delay_doyoff, aes(x=Model, y=delay_ts)) +
+fig_4b <- ggplot(data=delay_doyoff, aes(x=Model, y=delay_ts)) +
   geom_bar(position=position_dodge(), stat="identity", width=.9,
            fill=paletteSoftRainbow) +
   geom_errorbar(aes(ymin=delay_ts-delay_se, ymax=delay_ts+delay_se),
@@ -527,10 +526,10 @@ fig_3b <- ggplot(data=delay_doyoff, aes(x=Model, y=delay_ts)) +
         panel.background = element_rect(fill = 'white', colour = 'black')
   ) +
   geom_text(aes(x=6,y=19.5,label="b"),size=4,color="black",fontface="bold")
-fig_3b
+fig_4b
 
 # Plot growing season length change
-fig_3d <- ggplot(data=change_GSL, aes(x=Model, y=change_ts)) +
+fig_4d <- ggplot(data=change_GSL, aes(x=Model, y=change_ts)) +
   geom_bar(position=position_dodge(), stat="identity", width=.9,
            fill=paletteSoftRainbow) +
   geom_errorbar(aes(ymin=change_ts-change_se, ymax=change_ts+change_se),
@@ -558,11 +557,11 @@ fig_3d <- ggplot(data=change_GSL, aes(x=Model, y=change_ts)) +
         panel.background = element_rect(fill = 'white', colour = 'black')
   ) +
   geom_text(aes(x=6,y=34,label="d"),size=4,color="black",fontface="bold")
-fig_3d
+fig_4d
 
 
-## EXTENDED DATA FIGURE 3
-# Future projections of autumn senescence dates for six Central European species
+## SUPPLEMENTARY FIGURE 6 (Fig. S6)
+# Future projections of autumn senescence dates (a) and growing season length (b) for six Central European species
 
 # Calculate average senescence date/growing season length per Species
 future_doyoff.sp <- doyoff.df %>% 
@@ -600,7 +599,7 @@ paletteSoftRainbow <- c("#ABDAF4","#2b5a74",
                         "#e6d900","#e66600",
                         "#C7E9C0","#006D2C")
 
-ext_fig_3a <- ggplot(future_doyoff.sp, aes(x=YEAR, y=round(roll_DoY), colour=Species))+
+fig_s6a <- ggplot(future_doyoff.sp, aes(x=YEAR, y=round(roll_DoY), colour=Species))+
   labs(x = "Year", y = "Leaf senescence (DoY)") +
   geom_line(size=.5) +
   coord_cartesian(xlim=c(2029,2096.5), ylim=c(245,315))+
@@ -628,9 +627,9 @@ ext_fig_3a <- ggplot(future_doyoff.sp, aes(x=YEAR, y=round(roll_DoY), colour=Spe
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   ) + facet_wrap(~Model, ncol=3,nrow=2)
-ext_fig_3a
+fig_s6a
 
-ext_fig_3b <- ggplot(future_GSL.sp, aes(x=YEAR, y=round(roll_GSL), colour=Species))+
+fig_s6b <- ggplot(future_GSL.sp, aes(x=YEAR, y=round(roll_GSL), colour=Species))+
   labs(x = "Year", y = "Growing season length (days)") +
   geom_line(size=.5) +
   scale_y_continuous(position = 'right', expand=c(0,0)) +
@@ -659,10 +658,10 @@ ext_fig_3b <- ggplot(future_GSL.sp, aes(x=YEAR, y=round(roll_GSL), colour=Specie
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   ) + facet_wrap(~Model, ncol=3,nrow=2)
-ext_fig_3b
+fig_s6b
 
 
-## EXTENDED DATA FIGURE 4
+## SUPPLEMENTARY FIGURE 7 (Fig. S7)
 # Future delays in autumn senescence dates (a) and increases in growing season length (b) for six Central European species
 
 # Calculate senescence delay/growing season length change per species
@@ -676,7 +675,7 @@ change_sp <- futpast_GSLs %>%
             change_se=se(change))
 
 # Plot senescence delay per species
-ext_fig_4a <- ggplot(data=delays_sp, aes(x=Species, y=delay_sp, fill=Model)) +
+fig_s7a <- ggplot(data=delays_sp, aes(x=Species, y=delay_sp, fill=Model)) +
   geom_bar(position = position_dodge(preserve = "single"),
            stat="identity") + 
   geom_errorbar(aes(ymin=delay_sp-delay_se, ymax=delay_sp+delay_se),
@@ -702,10 +701,10 @@ ext_fig_4a <- ggplot(data=delays_sp, aes(x=Species, y=delay_sp, fill=Model)) +
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   )
-ext_fig_4a
+fig_s7a
 
 # Plot senescence delay per species
-ext_fig_4b <- ggplot(data=change_sp, aes(x=Species, y=change_sp, fill=Model)) +
+fig_s7b <- ggplot(data=change_sp, aes(x=Species, y=change_sp, fill=Model)) +
   geom_bar(position = position_dodge(preserve = "single"),
            stat="identity") + 
   geom_errorbar(aes(ymin=change_sp-change_se, ymax=change_sp+change_se),
@@ -737,10 +736,10 @@ ext_fig_4b <- ggplot(data=change_sp, aes(x=Species, y=change_sp, fill=Model)) +
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   )
-ext_fig_4b
+fig_s7b
 
 
-## EXTENDED DATA FIGURE 5
+## SUPPLEMENTARY FIGURE 9 (Fig. S9)
 # Comparison of seasonal activity between the present (1990-2010) and the future (2080-2100)
 
 # Import past (1990-2010) and future (2080-2100) daily photosynthesis
@@ -785,7 +784,7 @@ DoYoff_future.av <- DoYoff_future.df %>%
   as.numeric()
 
 # Area plot
-ext_fig_5 <- ggplot(all_photo.days, aes(x=DoY, y=roll_DoY)) + 
+fig_s9 <- ggplot(all_photo.days, aes(x=DoY, y=roll_DoY)) + 
   geom_area(aes(color=Timespan, fill=Timespan), 
             alpha = 0.5, 
             position = position_dodge(0.8)) +
@@ -818,4 +817,4 @@ ext_fig_5 <- ggplot(all_photo.days, aes(x=DoY, y=roll_DoY)) +
   geom_vline(aes(xintercept=DoYoff_future.av), colour="#F8766D", linetype="dashed") +
   geom_vline(aes(xintercept=DoYout_past.av), colour="#619CFF", linetype="dashed") +
   geom_vline(aes(xintercept=DoYoff_past.av), colour="#619CFF", linetype="dashed")
-ext_fig_5
+fig_s9

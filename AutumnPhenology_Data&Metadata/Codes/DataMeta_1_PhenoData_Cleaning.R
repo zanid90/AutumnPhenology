@@ -134,5 +134,27 @@ pheno_clean.df <- pheno_clean.df %>%
   select(timeseries, everything()) %>% 
   arrange(timeseries,YEAR)
 
+
+##----------------------------------------
+# Summary of phenological observations
+
+# Observations count (per species) 
+(nrow(pheno_clean.df)/2)
+pheno_clean.df %>% 
+  group_by(Species) %>% 
+  tally(name="Observations") %>% 
+  mutate(Observations=Observations/2)
+
+# Timeseries count
+(length(unique(pheno_clean.df$timeseries)))
+
+# Sites count (per species)
+(length(unique(pheno_clean.df$PEP_ID)))
+pheno_clean.df %>% 
+  count(timeseries,Species) %>% 
+  count(Species,name="Sites")
+
+
+##----------------------------------------
 # Export dataset
 write.table(pheno_clean.df,"DataMeta_2_PhenologyObs_PEP725_CleanData.csv",sep=";",row.names=F)

@@ -583,7 +583,7 @@ VPD.fun <- function(VPD, VPD_min, VPD_max) {
 # (modified by Jolly et al. 2005)
 
 # Initialize dataframes
-GSI <- data.frame()
+GSI.df <- data.frame()
 
 timeseries_year <- unique(DataList[[4]]$ts_yr)
 
@@ -686,7 +686,7 @@ for(ty in timeseries_year) {
     GSI.sub$cGSI       <- cGSI
     
     # Bind final datasets
-    GSI <- rbind(GSI,GSI.sub)
+    GSI.df <- rbind(GSI.df,GSI.sub)
     
     print(paste0("RUN: ",which(ty==timeseries_year)," OF ",length(timeseries_year)))
   }
@@ -789,8 +789,8 @@ E_max               <- 5 # maximum transpiration rate that can be sustained unde
 #PHOTOSYNTHESIS-CONDUCTANCE MODEL (modified by Sitch. et al. 2003)
 
 # Initialize dataframe
-photosynthesis.cum  <- data.frame()
-photosynthesis_daily.cum  <- data.frame()
+photosynthesis.df  <- data.frame()
+photosynthesis_daily.df  <- data.frame()
 
 # Get timeseries
 timeseries_year <- unique(DataList[[6]]$ts_yr)
@@ -1105,15 +1105,15 @@ for(ty in timeseries_year) {
     photosynthesis.sub$cR_d <- cR_d
     
     # Bind final datasets
-    photosynthesis.cum  <- rbind(photosynthesis.cum,photosynthesis.sub)
-    photosynthesis_daily.cum  <- rbind(photosynthesis_daily.cum,photosynthesis_daily.sub)
+    photosynthesis.df  <- rbind(photosynthesis.df,photosynthesis.sub)
+    photosynthesis_daily.df  <- rbind(photosynthesis_daily.df,photosynthesis_daily.sub)
     
     print(paste0("RUN: ",ty," => ",which(timeseries_year==ty)," OF ",length(timeseries_year)))
   }
 }
 
 # Export dataset
-write.table(photosynthesis_daily.cum,"FuturePhotosynthesis_daily.csv",sep=";",row.names=FALSE)
+write.table(photosynthesis_daily.df,"FuturePhotosynthesis_daily.csv",sep=";",row.names=FALSE)
 print("---the Future daily Photosynthesis rate_water stress dataset has been exported---")
 
 
@@ -1128,8 +1128,8 @@ drivers.df <- pheno.df %>%
 # Add drivers of autumn phenology
 drivers.df$temp_GS <- Factors.df$temp_GS
 drivers.df$RD_summer <- Factors.df$RD_summer
-drivers.df$cGSI <- GSI$cGSI
-drivers.df$cA_tot <- photosynthesis.cum$cA_totw
+drivers.df$cGSI <- GSI.df$cGSI
+drivers.df$cA_tot <- photosynthesis.df$cA_totw
 
 # Data wrangling
 drivers.df <- drivers.df %>% 
