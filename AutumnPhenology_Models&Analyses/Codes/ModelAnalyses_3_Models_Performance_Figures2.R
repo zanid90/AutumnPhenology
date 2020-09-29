@@ -1033,6 +1033,63 @@ grid.text("d", x=unit(0.94, "npc"), y=unit(0.285, "npc"),
 dev.off()
 
 
+## SUPPLEMENTARY FIGURE 6 (Fig. S6)
+
+## Model performance across time. 
+## Root-mean-square errors (RMSEs) of 
+## observed versus predicted autumn anomalies
+predictions.df <- fread("ModelAnalysis_1_Predicted_DoYoff.csv")
+
+# Best second-generation model
+rmse_TPDM.df <- predictions.df %>%
+  group_by(YEAR) %>% 
+  summarise(value=Metrics::rmse(Obs_AnomDoYoff,Pred_AnomDoYoff_TPDM)) %>% 
+  mutate(roll_value=caTools::runmean(value,window_width),
+         roll_sd=caTools::runsd(value,window_width),
+         Model="Second-generation (TPDM)")
+
+# Best PIA model
+rmse_PIA.df <- predictions.df %>%
+  group_by(YEAR) %>% 
+  summarise(value=Metrics::rmse(Obs_AnomDoYoff,`Pred_AnomDoYoff_PIA+`)) %>% 
+  mutate(roll_value=caTools::runmean(value,window_width),
+         roll_sd=caTools::runsd(value,window_width),
+         Model="CarbLim Model (PIA+)") 
+rmse_to_plot.df <- rbind(rmse_TPDM.df,rmse_PIA.df)
+rmse_to_plot.df$Model <- factor(rmse_to_plot.df$Model, levels=c("First-generation (TPM)","Second-generation (TPDM)","CarbLim Model (PIA+)"))
+
+# Plot RMSEs
+fig_S6 <- ggplot(rmse_to_plot.df, aes(x=YEAR, y=roll_value, color=Model, linetype=Model))+
+  labs(x = "Year", y = "RMSE (days)") +
+  geom_line(size=0.75) +
+  scale_linetype_manual(values=c("solid", "solid"))+
+  geom_ribbon(aes(ymin=roll_value-roll_sd, ymax=roll_value+roll_sd, group=Model, fill=Model), linetype=0, alpha=0.07) +
+  scale_color_manual(values=c("#E69F00","#74C476")) +
+  scale_fill_manual(values=c("#E69F00","#74C476")) +
+  coord_cartesian(xlim=c(min(rmse_to_plot.df$YEAR),max(rmse_to_plot.df$YEAR)),
+                  ylim=c(0,15)) +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA)) +
+  theme(aspect.ratio = 1/2.5, 
+        legend.position=c(0.2,0.2),
+        legend.background = element_rect(fill=NA, 
+                                         size=0.5, linetype = "solid"),
+        legend.title=element_blank(),
+        legend.text=element_text(size=12),
+        strip.text=element_text(size=10),
+        strip.background=element_rect(size=0.35),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(linetype = "solid",fill=NA,colour = 'black',size = .3),
+        axis.text.x=element_text(size=10),
+        axis.text.y=element_text(size=10),
+        axis.title.x=element_text(size=12,vjust=1),
+        axis.title.y=element_text(size=12,vjust=1),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = 'white', colour = 'black')
+  ) 
+fig_S6
+
+
 ##----------------------------------------
 ## Summary statistics
 
@@ -1053,132 +1110,6 @@ colMeans(RMSE_xval[,-c(1,2)])
 sapply(RMSE_xval[,-c(1,2)], sd)
 sapply(RMSE_xval[,-c(1,2)], se)
 
-
-##----------------------------------------
-## Photosynthesis model validation
-# N.B.: 
-# modelled NPP corresponds to cAtot (i.e. growing-season net photosynthesis)
-# "observed" NPP corresponds to predictions from satellite-data-driven net primary productivity models 
-
-# Import dataset (modelled NPP)
-drivers.df <- fread("DataMeta_3_Drivers.csv")
-npp_model.df <- drivers.df %>% 
-  select(timeseries,PEP_ID,LON,LAT,YEAR,DoY_off,cA_tot) %>% 
-  filter(YEAR %in% 2000:2014) %>% 
-  arrange(-desc(PEP_ID))
-
-# Get locations
-locations <- unique(npp_model.df$PEP_ID)
-
-# Import dataset (NPP from satellite observations)
-# MOD17A3.055: Terra Net Primary Production Yearly Global 1km (RUnning et al., 2011)
-npp_modis.df <- fread("NPP_Terra1_Extracted.csv") %>% 
-  filter(PEP_ID %in% locations) %>% 
-  pivot_longer(cols=-c(PEP_ID,LON,LAT),names_to="YEAR",values_to="NPP") %>% 
-  arrange(-desc(PEP_ID))
-
-# Control for overlapping locations
-satellite_sites <- data.table(sites=unique(npp_modis.df$PEP_ID))
-satellite_sites[,merge:=sites]
-pheno_sites <- data.table(sites=unique(npp_model.df$PEP_ID))
-pheno_sites[,merge:=sites]
-setkeyv(satellite_sites,c('merge'))
-setkeyv(pheno_sites,c('merge'))
-
-# Find location id (PEP_ID) of the closest satellite location
-overlap_sites <- satellite_sites[pheno_sites,roll='nearest']
-overlap_sites <- overlap_sites[which(overlap_sites$sites!=overlap_sites$merge),1:2]
-
-# Add PEP_ID for the overlapping location
-npp_model.df$PEP_ID_overlap <- npp_model.df$PEP_ID
-npp_model.df$PEP_ID_overlap <- mapvalues(npp_model.df$PEP_ID_overlap,overlap_sites$merge,overlap_sites$sites)
-
-# Exclude sites outside of forested areas
-# Read forest cover map (Hansen et al., 2013)
-library(raster)
-forest <- raster("Hansen_ForestCover_2000_CCgte10_30ArcSec.tif")
-
-# Extract forest cover information and exclude sites with no cover
-npp_modis.df <- data.frame(npp_modis.df, forestCover=raster::extract(forest, npp_modis.df[, c("LON", "LAT")])) %>% 
-  filter(forestCover == 1)
-npp_model.df <- npp_model.df %>% 
-  filter(PEP_ID %in% unique(npp_modis.df$PEP_ID))
-detach("package:raster", unload=TRUE)
-
-# Keep sites with deciduous forests
-# MCD12Q1.006 MODIS Land Cover Type Yearly Global 500m 
-dec_forests <- fread("LandCover_LAI_Extracted.csv") 
-
-# Select locations with Type 6
-# Deciduous Broadleaf Vegetation: 
-# dominated by deciduous broadleaf trees and shrubs (>1m)
-dec_locations <- which(rowMeans(dec_forests[,-c(1:3,19:21)])==6)
-dec_locations <- dec_forests[dec_locations,]$PEP_ID
-npp_model.df <- npp_model.df %>% 
-  filter(PEP_ID %in% dec_locations)
-npp_modis.df <- npp_modis.df %>% 
-  filter(PEP_ID %in% dec_locations)
-
-# Join NPP values
-NPP.df <- npp_model.df %>%
-  left_join(.,npp_modis.df,by="PEP_ID") %>%
-  select(timeseries,PEP_ID,cA_tot,NPP) %>%
-  rename(Observed = NPP, Modelled = cA_tot)
-
-# Plot
-library(ggplot2)
-library(caTools)
-library(lmodel2)
-library(Metrics)
-library(ggpubr)
-library(scales)
-
-# Define palette
-paletteForUse <- c('#d10000', '#ff6622', '#ffda21', '#33dd00', '#1133cc', '#220066', '#330044')
-colors <-  colorRampPalette(paletteForUse)(256)
-
-# Use densCols() output to get density at each point
-NPP.df$dens <- col2rgb(densCols(NPP.df$Observed, NPP.df$Modelled))[1,] + 1L
-
-# Map densities to colors
-NPP.df$colors = colors[NPP.df$dens]
-
-# Calculate predicted vs. observed R2, RMSE and slope 
-fit <- lmodel2(NPP.df$Observed~NPP.df$Modelled)
-R2 <- fit$rsquare
-RMSE <- rmse(NPP.df$Modelled,NPP.df$Observed)
-Intercept <- fit$regression.results$Intercept[3] #standardized major axis regression
-Slope <- fit$regression.results$Slope[3] #standardized major axis regression
-
-# Plot
-# SUPPLEMENTARY FIGURE 8 (Fig. S8)
-fig_s8 <- NPP.df %>% 
-  ggplot(aes(x = Modelled, y = Observed)) +
-  geom_point(color = NPP.df$colors,
-             size = 2) +
-  geom_abline() +
-  geom_abline(slope = Slope,
-              intercept = Intercept,
-              linetype="dashed") +
-  scale_x_continuous(labels = comma) +
-  scale_y_continuous(labels = comma) +
-  theme_bw() +
-  theme(aspect.ratio = 1,
-        panel.grid = element_blank(),
-        plot.title = element_text(hjust = 0.5)) +
-  labs(y = "NPP (MODIS)", x = "Modelled NPP")
-fig_s8 <- fig_s8 +
-  geom_text(mapping = aes(x = 8000, y = 5000),
-            label = paste0("R2 = ", round(R2_site,2),
-                           "\n Slope = ", round(Slope,2),
-                           "\nRMSE = ", round(RMSE,2),
-                           "\nN = ",nrow(NPP.df)),
-            size = 2.75) 
-fig_s8
-ggsave(filename = "FigureS8.jpeg",
-       device = "jpeg",
-       width = 5.8*2, units = "cm",
-       dpi = 600)
 
 
 ##----------------------------------------

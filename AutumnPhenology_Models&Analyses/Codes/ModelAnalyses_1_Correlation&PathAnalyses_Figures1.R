@@ -373,10 +373,10 @@ library(nlme)
 # Model including only climatic variables
 climate_autumn_model <- piecewiseSEM::psem(
   
-  lme(autumn_anomaly ~  spring_anomaly + tempaut2_anomaly + tempGS_anomaly + prec_anomaly, random = ~ 1 | PEP_ID, na.action = na.omit,
+  lme(DoY_off ~   DoY_out + temp_aut2 + temp_GS + HRD + ci, random = ~ 1 | timeseries, na.action = na.omit,
       data = drivers_sel_anomalies.df),
   
-  lme(prec_anomaly ~ tempGS_anomaly, random = ~ 1 | timeseries, na.action = na.omit,
+  lme(HRD ~ temp_GS, random = ~ 1 | timeseries, na.action = na.omit,
       data = drivers_sel_anomalies.df)
   
 )
@@ -385,11 +385,11 @@ climate_autumn_model <- piecewiseSEM::psem(
 # and climatic variables as indirect effects
 full_autumn_model <- piecewiseSEM::psem(
   
-  lme(NPP_anomaly ~ spring_anomaly + tempGS_anomaly + prec_anomaly + ci_anomaly, random = ~ 1 | PEP_ID, na.action = na.omit,
-      data = drivers_sel_anomalies.df),
+  lme(cA_tot ~ DoY_out + temp_GS + HRD + ci, random = ~ 1 | timeseries, na.action = na.omit,
+      data = drivers_sel_anomalies.df, control=lmeControl(returnObject=TRUE)),
   
-  lme(autumn_anomaly ~ NPP_anomaly + tempaut2_anomaly, random = ~ 1 | timeseries, na.action = na.omit,
-      data = drivers_sel_anomalies.df)
+  lme(DoY_off ~ cA_tot + temp_aut2, random = ~ 1 | timeseries, na.action = na.omit,
+      data = drivers_sel_anomalies.df, control=lmeControl(returnObject=TRUE))
   
 )
 
@@ -399,19 +399,29 @@ summary(full_autumn_model, .progressBar = FALSE)
 
 # Compare models
 anova(climate_autumn_model,full_autumn_model)
+piecewiseSEM::infCrit(climate_autumn_model)
+piecewiseSEM::infCrit(full_autumn_model)
 
 # Extract standardized parameter estimates
 climate_stdest <- piecewiseSEM::coefs(climate_autumn_model)$Std.Estimate
 full_stdest <- piecewiseSEM::coefs(full_autumn_model)$Std.Estimate
 
 # Extract R2
-climate_r2 <- piecewiseSEM::rsquared(climate_autumn_model)
-full_r2 <- piecewiseSEM::rsquared(full_autumn_model)
+# marginal: variance explained only by fixed effects
+# conditional: variance explained by the entire model, i.e., both fixed effects and random effects
+climate_r2 <- piecewiseSEM::rsquared(climate_autumn_model)[1,]
+full_r2 <- piecewiseSEM::rsquared(full_autumn_model)[1,]
+
+# Calculate adjusted R2
+adjR2  <- function(r2, n, p) {
+  1 - ((1-r2) * ((n-1)/(n-p-1)))
+}
+climate_adjR2 <- adjR2(climate_r2$Marginal,nrow(drivers_sel_anomalies.df),4)
+full_adjR2 <- adjR2(full_r2$Marginal,nrow(drivers_sel_anomalies.df),2)
 
 # Plot
 # FIGURE 1C
 library(diagram)
-jpeg("Figure1C.jpeg",width=5.8*6,height=5.8*3,units="cm",res=600)
 
 # Plot flow-charts
 par(mar=c(1,1,1,1), mfrow=c(1,2))
@@ -423,29 +433,29 @@ openplotmat()
 text(0.025,0.95,"c",cex=2.25,font=2)
 
 # Define names of variables
-names <- c("Spring\nAnomaly","Autumn\nTemperature","Summer\nTemperature","Summer\nPrecipitation",
+names <- c("Spring\nAnomaly","Autumn\nTemperature","Summer\nTemperature","Summer\nPrecipitation","CO2\nConcentration",
            "Autumn\nAnomaly")
 
 # Define coordinates
-elpos <- coordinates(c(4,1))
+elpos <- coordinates(c(5,1))
 
 # Define colors
-Cols = c("blue3","blue3","red3","red3")
+Cols = c("blue3","blue3","red3","red3","red3")
 
 # Arrows
-arrpos <- matrix(ncol=2, nrow=4)
-for (i in 1:4) {
-  arrpos[i,] <- straightarrow(from=elpos[i,],to=elpos[5,],lty=1,lcol=Cols[i],lwd=20*abs(climate_stdest)[i])
+arrpos <- matrix(ncol=2, nrow=5)
+for (i in 1:5) {
+  arrpos[i,] <- straightarrow(from=elpos[i,],to=elpos[6,],lty=1,lcol=Cols[i],lwd=20*abs(climate_stdest)[i])
 }
 
 # Boxes
-for(i in 1:5) {
+for(i in 1:6) {
   textrect(elpos[i,],0.12,0.05,lab=names[i],cex=1.25)
 }
 
 # Arrow-labels
-for(i in 1:4) {
-  text(arrpos[i,1]+0.05,arrpos[i,2],climate_stdest[i],col=Cols[i])
+for(i in 1:5) {
+  text(arrpos[i,1]+0.05,arrpos[i,2],round(climate_stdest[i],2),col=Cols[i])
 }
 
 # Add r2
@@ -488,4 +498,3 @@ for(i in 1:6) {
 
 # Add r2
 text(arrpos[i,1]+0.12,0.18,paste0("R2 = ",round(full_r2[1,5],2)),cex=1.25)
-dev.off()

@@ -560,7 +560,7 @@ fig_4d <- ggplot(data=change_GSL, aes(x=Model, y=change_ts)) +
 fig_4d
 
 
-## SUPPLEMENTARY FIGURE 6 (Fig. S6)
+## SUPPLEMENTARY FIGURE 7 (Fig. S7)
 # Future projections of autumn senescence dates (a) and growing season length (b) for six Central European species
 
 # Calculate average senescence date/growing season length per Species
@@ -599,7 +599,7 @@ paletteSoftRainbow <- c("#ABDAF4","#2b5a74",
                         "#e6d900","#e66600",
                         "#C7E9C0","#006D2C")
 
-fig_s6a <- ggplot(future_doyoff.sp, aes(x=YEAR, y=round(roll_DoY), colour=Species))+
+fig_s7a <- ggplot(future_doyoff.sp, aes(x=YEAR, y=round(roll_DoY), colour=Species))+
   labs(x = "Year", y = "Leaf senescence (DoY)") +
   geom_line(size=.5) +
   coord_cartesian(xlim=c(2029,2096.5), ylim=c(245,315))+
@@ -627,9 +627,9 @@ fig_s6a <- ggplot(future_doyoff.sp, aes(x=YEAR, y=round(roll_DoY), colour=Specie
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   ) + facet_wrap(~Model, ncol=3,nrow=2)
-fig_s6a
+fig_s7a
 
-fig_s6b <- ggplot(future_GSL.sp, aes(x=YEAR, y=round(roll_GSL), colour=Species))+
+fig_s7b <- ggplot(future_GSL.sp, aes(x=YEAR, y=round(roll_GSL), colour=Species))+
   labs(x = "Year", y = "Growing season length (days)") +
   geom_line(size=.5) +
   scale_y_continuous(position = 'right', expand=c(0,0)) +
@@ -658,10 +658,10 @@ fig_s6b <- ggplot(future_GSL.sp, aes(x=YEAR, y=round(roll_GSL), colour=Species))
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   ) + facet_wrap(~Model, ncol=3,nrow=2)
-fig_s6b
+fig_s7b
 
 
-## SUPPLEMENTARY FIGURE 7 (Fig. S7)
+## SUPPLEMENTARY FIGURE 8 (Fig. S8)
 # Future delays in autumn senescence dates (a) and increases in growing season length (b) for six Central European species
 
 # Calculate senescence delay/growing season length change per species
@@ -675,7 +675,7 @@ change_sp <- futpast_GSLs %>%
             change_se=se(change))
 
 # Plot senescence delay per species
-fig_s7a <- ggplot(data=delays_sp, aes(x=Species, y=delay_sp, fill=Model)) +
+fig_s8a <- ggplot(data=delays_sp, aes(x=Species, y=delay_sp, fill=Model)) +
   geom_bar(position = position_dodge(preserve = "single"),
            stat="identity") + 
   geom_errorbar(aes(ymin=delay_sp-delay_se, ymax=delay_sp+delay_se),
@@ -701,10 +701,10 @@ fig_s7a <- ggplot(data=delays_sp, aes(x=Species, y=delay_sp, fill=Model)) +
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   )
-fig_s7a
+fig_s8a
 
 # Plot senescence delay per species
-fig_s7b <- ggplot(data=change_sp, aes(x=Species, y=change_sp, fill=Model)) +
+fig_s8b <- ggplot(data=change_sp, aes(x=Species, y=change_sp, fill=Model)) +
   geom_bar(position = position_dodge(preserve = "single"),
            stat="identity") + 
   geom_errorbar(aes(ymin=change_sp-change_se, ymax=change_sp+change_se),
@@ -736,85 +736,103 @@ fig_s7b <- ggplot(data=change_sp, aes(x=Species, y=change_sp, fill=Model)) +
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   )
-fig_s7b
+fig_s8b
 
 
 ## SUPPLEMENTARY FIGURE 9 (Fig. S9)
-# Comparison of seasonal activity between the present (1990-2010) and the future (2080-2100)
+## Variation in annual net photosynthesis in our dataset
 
-# Import past (1990-2010) and future (2080-2100) daily photosynthesis
-all_photo.days <- fread("DailyPhotosynthesis_past_future.csv")
+## Sub-panel A
+# Plot frequency distribution showing the total variation across years and sites
+drivers.df <- fread("DataMeta_3_Drivers.csv")
+dens_to_plot.df  <- drivers.df %>% 
+  select(YEAR,cA_tot,`cA_tot-w`) %>%
+  rename(`Non-water stressed`=cA_tot,`Water-stressed`=`cA_tot-w`) %>% 
+  pivot_longer(-YEAR,names_to="Photosynthesis")
 
-# Rolling mean
-window_width <- 15
-all_photo.days <- all_photo.days %>% 
-  group_by(Timespan) %>% 
-  mutate(roll_DoY=runmean(daily.av,window_width))
-
-# Calculate average leaf transition dates
-# Past
-DoYs_past.df <- fread("DataMeta_2_PhenologyObs_PEP725_CleanData.csv")
-DoYout_past.av <- DoYs_past.df %>% 
-  filter(phenology=="leaf.out") %>% 
-  filter(timeseries %in% unique(future.df$timeseries)) %>% 
-  filter(YEAR %in% 1990:2010) %>%
-  select(DoY) %>% 
-  summarise(mean(DoY)) %>% 
-  as.numeric()
-DoYoff_past.av <- DoYs_past.df %>% 
-  filter(phenology=="leaf.off") %>% 
-  filter(timeseries %in% unique(future.df$timeseries)) %>%
-  filter(YEAR %in% 1990:2010) %>%
-  select(DoY) %>% 
-  summarise(mean(DoY)) %>% 
-  as.numeric()
-
-# Future
-DoYout_future.df <- fread("Future_SpringPhenology_soil_CO2_M1.csv")
-DoYout_future.av <- DoYout_future.df %>% 
-  filter(YEAR %in% 2080:2100) %>%
-  select(DOY_out) %>% 
-  summarise(mean(DOY_out)) %>% 
-  as.numeric()
-DoYoff_future.df <- fread("ModelAnalysis_5_FutureAutumnProjections.csv")
-DoYoff_future.av <- DoYoff_future.df %>% 
-  filter(YEAR %in% 2080:2100) %>%
-  select(`DoY.off_PIA+`) %>% 
-  summarise(mean(`DoY.off_PIA+`,na.rm = T)) %>% 
-  as.numeric()
-
-# Area plot
-fig_s9 <- ggplot(all_photo.days, aes(x=DoY, y=roll_DoY)) + 
-  geom_area(aes(color=Timespan, fill=Timespan), 
-            alpha = 0.5, 
-            position = position_dodge(0.8)) +
-  xlab("Day-of-year") +
-  ylab(bquote('Net photosynthetic rate (gC '~m^-2~day^-1*')')) +
-  scale_color_manual(values = c("#619CFF", "#F8766D")) +
-  scale_fill_manual(values = c("#619CFF", "#F8766D")) +
-  theme(aspect.ratio = 0.45, 
-        legend.position=c(.125,.85), 
-        legend.title=element_blank(),
-        legend.text=element_text(size=6),
-        legend.key.size=unit(0.3,"cm"),
-        legend.spacing.x=unit(0.1,"cm"),
+# Plot
+fig_S9a <- ggplot(data=dens_to_plot.df, aes(x=value)) + 
+  geom_histogram(aes(color = Photosynthesis, fill = Photosynthesis),
+                 alpha = 0.4, position = "identity") +
+  xlab(bquote('Net photosynthetic rate (gC '~m^-2~year^-1*')')) +
+  scale_color_manual(values = c("#F8766D", "#619CFF"))+
+  scale_fill_manual(values = c("#F8766D", "#619CFF")) +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA)) +
+  theme(aspect.ratio = 1, 
+        legend.position=c(0.25,0.89),
         legend.background = element_rect(fill=NA, 
                                          size=0.5, linetype = "solid"),
+        legend.title=element_blank(),
+        legend.text=element_text(size=12),
+        strip.text=element_text(size=10),
+        strip.background=element_rect(size=0.35),
+        axis.line = element_line(colour = "black"),
         panel.border = element_rect(linetype = "solid",fill=NA,colour = 'black',size = .3),
-        axis.ticks.y=element_line(size=.3),
-        axis.ticks.x=element_line(size=.3),
-        axis.line.x=element_line(size=.3),
-        axis.line.y=element_line(size=.3),
-        axis.text.x=element_text(size=6, hjust=1),
-        axis.text.y=element_text(size=6),
-        axis.title.x=element_text(size=8,vjust=1),
-        axis.title.y=element_text(size=8,vjust=1),
+        axis.text.x=element_text(size=10),
+        axis.text.y=element_text(size=10),
+        axis.title.x=element_text(size=12,vjust=1),
+        axis.title.y=element_text(size=12,vjust=1),
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
-  ) +
-  geom_vline(aes(xintercept=DoYout_future.av), colour="#F8766D", linetype="dashed") +
-  geom_vline(aes(xintercept=DoYoff_future.av), colour="#F8766D", linetype="dashed") +
-  geom_vline(aes(xintercept=DoYout_past.av), colour="#619CFF", linetype="dashed") +
-  geom_vline(aes(xintercept=DoYoff_past.av), colour="#619CFF", linetype="dashed")
-fig_s9
+  ) 
+fig_S9a
+
+
+## Sub-panel B
+# Plot Temporal variation in annual photosynthesis
+
+# Calculate 15-year moving averages
+window_width <- 15
+
+# Water-stressed
+water.df <- drivers.df %>% 
+  select(YEAR,`cA_tot-w`) %>%
+  rename(`Water-stressed`=`cA_tot-w`) %>% 
+  group_by(YEAR) %>% 
+  summarise(value=mean(`Water-stressed`)) %>% 
+  mutate(roll_photo=caTools::runmean(value,window_width),
+         sd_photo=caTools::runsd(value,window_width),
+         Photosynthesis="Water-stressed")
+
+# Non-water-stressed
+nwater.df <- drivers.df %>% 
+  select(YEAR,cA_tot) %>%
+  rename(`Non-water stressed`=cA_tot) %>% 
+  group_by(YEAR) %>% 
+  summarise(value=mean(`Non-water stressed`)) %>% 
+  mutate(roll_photo=caTools::runmean(value,window_width),
+         sd_photo=caTools::runsd(value,window_width),
+         Photosynthesis="Non-water-stressed")
+phototrend_to_plot.df <- rbind(water.df,nwater.df)
+colnames(phototrend_to_plot.df)
+
+# Plot
+fig_9b <- ggplot(phototrend_to_plot.df, aes(x=YEAR, y=roll_photo, color=Photosynthesis))+
+  ylab(bquote('Net photosynthetic rate (gC '~m^-2~year^-1*')')) +
+  xlab("Year") +
+  geom_line(size=0.75) +
+  geom_ribbon(aes(ymin=roll_photo-sd_photo, ymax=roll_photo+sd_photo, group=Photosynthesis, fill=Photosynthesis), linetype=0, alpha=0.07) +
+  scale_color_manual(values=c("#F8766D", "#619CFF")) +
+  scale_fill_manual(values=c("#F8766D", "#619CFF")) +
+  coord_cartesian(xlim=c(min(phototrend_to_plot.df$YEAR),max(phototrend_to_plot.df$YEAR))) +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA)) +
+  theme(aspect.ratio = 1/2.5, 
+        legend.position=c(0.85,0.175),
+        legend.background = element_rect(fill=NA, 
+                                         size=0.5, linetype = "solid"),
+        legend.title=element_blank(),
+        legend.text=element_text(size=12),
+        strip.text=element_text(size=10),
+        strip.background=element_rect(size=0.35),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(linetype = "solid",fill=NA,colour = 'black',size = .3),
+        axis.text.x=element_text(size=10),
+        axis.text.y=element_text(size=10),
+        axis.title.x=element_text(size=12,vjust=1),
+        axis.title.y=element_text(size=12,vjust=1),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = 'white', colour = 'black')
+  ) 
+fig_S9b

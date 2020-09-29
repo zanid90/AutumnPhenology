@@ -195,7 +195,6 @@ future_data_folder <- "D:/FutureBeerData"
 extract_folder <- paste0(future_data_folder,"/Extract")
 setwd(extract_folder)
 
-yr= 2016
 # Extract climatic values to dataframes
 for (yr in 2016:2100) {
   
@@ -401,6 +400,11 @@ for(ty in timeseries_year) {
   pheno.sub <- DataList[[3]][which(DataList[[3]]$ts_yr==ty),]
   T_mean.sub <- DataList[[1]][which(DataList[[1]]$ts_yr==ty),]
   prec.sub <- DataList[[2]][which(DataList[[2]]$ts_yr==ty),]
+  photo.sub <- DataList[[6]][which(DataList[[6]]$lat_yr==pheno.sub$lat_yr),]
+  
+  # Generate sub-dataframe to store results
+  factors.sub <- pheno.sub %>% 
+    select(timeseries,ts_yr)
   
   # Define the current year in calendar units
   year <- strsplit(ty,"_")[[1]][2]
@@ -427,59 +431,45 @@ for(ty in timeseries_year) {
   month <- function(x)format(x, '%Y-%m')
   monthly_vals <- as.data.frame(aggregate(z, by=month, FUN=mean))
 
-  # N.B.:
-  # for each time-point there might be multiple rows (i.e. different species)
-  species.n <- 1:nrow(pheno.sub)
+  # Calculate the growing season GS
+  # Starting of GS is DoY_off (future projection)
+  DoY_out <- pheno.sub$DOY_out
+  
+  # End of the GS is the first day below 11 hours after the beginning of the growing season
+  endGS_site <- photo.sub %>% 
+    select(as.character(1:366)) 
+  endGS_site <- which(endGS_site<11)
+  endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
+ 
+  # Growing season
+  GS_interval <- DoY_out:endGS_site
+  
+  # Calculate the mean temperature of the growing season
+  temp_GS <- T_mean.sub %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval))
+  factors.sub$temp_GS <- mean(as.numeric(temp_GS))
 
-  for(sp in species.n) {
-    
-    # Subset
-    pheno.sub <- DataList[[3]][which(DataList[[3]]$ts_yr==ty),]
-    pheno.sub <- pheno.sub[sp,]     
-    factors.sub <- pheno.sub %>% 
-      select(timeseries,ts_yr)
-    photo.sub <- DataList[[4]][which(DataList[[4]]$lat_yr==pheno.sub$lat_yr),]
-    
-    # Calculate the growing season GS
-    # Starting of GS is DoY_off (future projection)
-    DoY_out <- pheno.sub$DOY_out
-    
-    # End of the GS is the first day below 11 hours after the beginning of the growing season
-    endGS_site <- photo.sub %>% 
-      select(as.character(1:366)) 
-    endGS_site <- which(endGS_site<11)
-    endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
-   
-    # Growing season
-    GS_interval <- DoY_out:endGS_site
-    
-    # Calculate the mean temperature of the growing season, GST
-    temp_GS <- T_mean.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval))
-    factors.sub$temp_GS <- mean(as.numeric(temp_GS))
+  # Calculate RD_summer: number of rainy days (i.e. >2mm of precipitation)
+  # during the driest season
+  
+  # Get the months of predicted leaf-out and leaf-off
+  month_out <- lubridate::month(as.Date(DoY_out,origin=days[1]))
+  month_off <- lubridate::month(as.Date(endGS_site,origin=days[1]))
 
-    # Calculate RD_summer: number of rainy days (i.e. >2mm of precipitation)
-    # during the driest season
-    
-    # Get the months of predicted leaf-out and leaf-off
-    month_out <- lubridate::month(as.Date(DoY_out,origin=days[1]))
-    month_off <- lubridate::month(as.Date(endGS_site,origin=days[1]))
-
-    # Get the top-3 driest months during the growing season
-    monthDrys <- sort(monthly_vals$Prec, index.return=TRUE, decreasing=FALSE)$ix
-    monthDrys <- monthDrys[which(monthDrys<=month_off & monthDrys>=month_out)]
-    monthDry3 <- monthDrys[1:3]
-    
-    # Get the rainy days of the driest months
-    RD_summer <- daily_vals %>% 
-      filter(MONTH %in% monthDry3) %>% 
-      filter(Prec>=2)
-    factors.sub$RD_summer <- nrow(RD_summer)
-    
-    print(paste0("RUN: ",pheno.sub$timeseries," => ",which(timeseries_year==ty)," OF ",length(timeseries_year)))
-    Factors.df <- rbind(Factors.df,factors.sub)
-  }
+  # Get the top-3 driest months during the growing season
+  monthDrys <- sort(monthly_vals$Prec, index.return=TRUE, decreasing=FALSE)$ix
+  monthDrys <- monthDrys[which(monthDrys<=month_off & monthDrys>=month_out)]
+  monthDry3 <- monthDrys[1:3]
+  
+  # Get the rainy days of the driest months
+  RD_summer <- daily_vals %>% 
+    filter(MONTH %in% monthDry3) %>% 
+    filter(Prec>=2)
+  factors.sub$RD_summer <- nrow(RD_summer)
+  
+  print(paste0("RUN: ",pheno.sub$timeseries," => ",which(timeseries_year==ty)," OF ",length(timeseries_year)))
+  Factors.df <- rbind(Factors.df,factors.sub)
 }
 
 
@@ -505,9 +495,12 @@ DataList[[4]] <- pheno_soil_co2.df
 DataList[[5]] <- fread("FuturePhotoperiod.csv")
 
 # Add the time-point identifiers
-for(i in c(1:3,5)) {
+for(i in c(1:4)) {
   DataList[[i]]$ts_yr  <- paste0(DataList[[i]]$PEP_ID,"_",DataList[[i]]$YEAR)
 }
+
+# Add unique id for phenological observations
+DataList[[4]]$id  <- paste0(DataList[[4]]$PEP_ID,"_",DataList[[4]]$Species,"_",DataList[[4]]$YEAR)
 
 # Add plant functional type label 
 # T-BL-SG: Temperate broad-leaved summergreen tree
@@ -585,111 +578,104 @@ VPD.fun <- function(VPD, VPD_min, VPD_max) {
 # Initialize dataframes
 GSI.df <- data.frame()
 
-timeseries_year <- unique(DataList[[4]]$ts_yr)
+# Get all time-points per species
+ids = unique(DataList[[4]]$id)
 
-for(ty in timeseries_year) {
+for(id_sub in ids) {
   
-  # Subest by time-point
-  pheno.sub <- DataList[[4]][which(DataList[[4]]$ts_yr==ty),]
-  T_max.sub <- DataList[[1]][which(DataList[[1]]$ts_yr==ty),]
-  T_min.sub <- DataList[[2]][which(DataList[[2]]$ts_yr==ty),]
-  T_mean.sub <- DataList[[3]][which(DataList[[3]]$ts_yr==ty),]
+  # Subset input data by time-point
+  pheno_sub.df = DataList[[4]] %>% 
+    filter(id==id_sub)
+  T_max_sub.df = DataList[[1]] %>% 
+    filter(ts_yr==pheno_sub.df$ts_yr)
+  T_min_sub.df = DataList[[2]] %>% 
+    filter(Tts_yr==pheno_sub.df$ts_yr)
+  T_mean_sub.df = DataList[[3]] %>% 
+    filter(ts_yr==pheno_sub.df$ts_yr)
+  photoperiod_sub.df = photoperiod.df %>% 
+    filter(lat_yr==pheno_sub.df$lat_yr)
   
-  # N.B.:
-  # for each time-point there might be multiple rows (i.e. different species)
-  species.n <- 1:nrow(pheno.sub)
+  # Generate sub-dataframe to store results
+  GSI.sub <- pheno_sub.df %>% 
+    select(timeseries,ts_yr,Species,PEP_ID,YEAR)
   
-  for(sp in species.n) {
-    
-    # Subset by species
-    pheno.sub <- DataList[[4]][which(DataList[[4]]$ts_yr==ty),]
-    pheno.sub <- pheno.sub[sp,]     
-    GSI.sub <- pheno.sub %>% 
-      select(timeseries,ts_yr,Species,PEP_ID,YEAR)
-    
-    # Subset photoperiod
-    photo.sub         <- DataList[[5]][which(DataList[[5]]$lat_yr==pheno.sub$lat_yr),]
-    photo.sub         <- as.data.frame(photo.sub)
-    
-    # Estimate VPD parameters based on plant-functional type (PFT)
-    if(pheno.sub$PFT=="BNL") {
-      VPD_min       <- 0.61
-      VPD_max       <- 3.1
-    } else {
-      VPD_min       <- 1.1
-      VPD_max       <- 3.6
-    }
-    
-    # Calculate the growing season GS
-    # Starting of GS is DoY_off (future projection)
-    DoY_out <- pheno.sub$DOY_out
-    
-    # End of the GS is the first day below 11 hours after the beginning of the growing season
-    endGS_site <- photo.sub %>% 
-      select(as.character(1:366)) 
-    endGS_site <- which(endGS_site<11)
-    endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
-    
-    # Growing season
-    GS_interval <- DoY_out:endGS_site
-    
-    # Subset climatic variables from the starting GS
-    Tmax <- T_max.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
-    Tmin <- T_min.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
-    Tmean <- T_mean.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
-    photoperiod <- photo.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
-    
-    # Estimate phoperiod thresholds based on the maximum and minimum values of the growing season
-    photo_min <- min(photoperiod) 
-    photo_max <- max(photoperiod) 
-    
-    # Initialize vector to store daily GSI
-    iGSI_year <- 0
-    
-    # Loop through days in the growing season
-    for(day in GS_interval) {
-      day <- as.character(day)
-      
-      # e_s: saturation vapour pressure [kPa] 
-      e_s <- (degC_to_kPa.fun(temp=Tmax[,day])+degC_to_kPa.fun(temp=Tmin[,day]))/2
-      
-      # e_a: derived from dewpoint temperature [kPa]
-      e_a <- degC_to_kPa.fun(temp=Tmin[,day])
-      
-      # VPD: Vapour pressure deficit [kPA]
-      VPD <- e_s-e_a
-      iVPD <- VPD.fun(VPD, VPD_min, VPD_max)
-      
-      # iOpt_temp: response to optimal temperature (Gompertz function)
-      iOpt <- temp_opt.fun(Tmean[,day])
-      
-      # iPhoto: photoperiod response
-      iPhoto <- photoperiod.fun(photoperiod[,day], photo_min, photo_max)
-      
-      # Calculate daily GSI
-      iGSI <- as.numeric(iVPD*iOpt*iPhoto)
-      
-      # Add to the cumulative cGSI
-      iGSI_year         <- c(iGSI_year,iGSI)
-      cGSI              <- sum(iGSI_year)
-    }
-    
-    # Store results
-    GSI.sub$cGSI       <- cGSI
-    
-    # Bind final datasets
-    GSI.df <- rbind(GSI.df,GSI.sub)
-    
-    print(paste0("RUN: ",which(ty==timeseries_year)," OF ",length(timeseries_year)))
+  # Estimate VPD parameters based on plant-functional type (PFT)
+  if(pheno_sub.df$PFT=="BNL") {
+    VPD_min       <- 0.61
+    VPD_max       <- 3.1
+  } else {
+    VPD_min       <- 1.1
+    VPD_max       <- 3.6
   }
+  
+  # Calculate the growing season GS
+  # Starting of GS is DoY_off (future projection)
+  DoY_out <- pheno_sub.df$DOY_out
+  
+  # End of the GS is the first day below 11 hours after the beginning of the growing season
+  endGS_site <- photoperiod_sub.df %>% 
+    select(as.character(1:366)) 
+  endGS_site <- which(endGS_site<11)
+  endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
+  
+  # Growing season
+  GS_interval <- DoY_out:endGS_site
+  
+  # Subset climatic variables from the starting GS
+  Tmax <- T_max_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  Tmin <- T_min_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  Tmean <- T_mean_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  photoperiod <- photo_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  
+  # Estimate phoperiod thresholds based on the maximum and minimum values of the growing season
+  photo_min <- min(photoperiod) 
+  photo_max <- max(photoperiod) 
+  
+  # Initialize vector to store daily GSI
+  iGSI_year <- 0
+  
+  # Loop through days in the growing season
+  for(day in GS_interval) {
+    day <- as.character(day)
+    
+    # e_s: saturation vapour pressure [kPa] 
+    e_s <- (degC_to_kPa.fun(temp=Tmax[,day])+degC_to_kPa.fun(temp=Tmin[,day]))/2
+    
+    # e_a: derived from dewpoint temperature [kPa]
+    e_a <- degC_to_kPa.fun(temp=Tmin[,day])
+    
+    # VPD: Vapour pressure deficit [kPa]
+    VPD <- e_s-e_a
+    iVPD <- VPD.fun(VPD, VPD_min, VPD_max)
+    
+    # iOpt_temp: response to optimal temperature (Gompertz function)
+    iOpt <- temp_opt.fun(Tmean[,day])
+    
+    # iPhoto: photoperiod response
+    iPhoto <- photoperiod.fun(photoperiod[,day], photo_min, photo_max)
+    
+    # Calculate daily GSI
+    iGSI <- as.numeric(iVPD*iOpt*iPhoto)
+    
+    # Add to the cumulative cGSI
+    iGSI_year <- c(iGSI_year,iGSI)
+    cGSI <- sum(iGSI_year)
+  }
+  
+  # Store results
+  GSI.sub$cGSI <- cGSI
+  
+  # Bind final datasets
+  GSI.df <- rbind(GSI.df,GSI.sub)
+  print(paste0("COMPLETED: ",id_sub," => ",which(ids==id_sub)," OF ",length(ids)))
 }
 
 
@@ -718,6 +704,9 @@ DataList[[6]] <- pheno_soil_co2.df
 for(i in c(1:4,6)) {
   DataList[[i]]$ts_yr  <- paste0(DataList[[i]]$PEP_ID,"_",DataList[[i]]$YEAR)
 }
+
+# Add unique id for phenological predictions
+DataList[[6]]$id  <- paste0(DataList[[4]]$PEP_ID,"_",DataList[[6]]$Species,"_",DataList[[6]]$YEAR)
 
 # Add plant functional type label 
 # T-BL-SG: Temperate broad-leaved summergreen tree
@@ -762,7 +751,7 @@ alphaa              <- 0.5 # fraction of PAR assimilated at ecosystem level rela
 alphac3             <- 0.08 # intrinsic quantum efficiency of CO2 uptake in C3 plants
 lambdamc3           <- 0.8 # optimal (maximum) lambda in C3 plants
 cmass               <- 12.0 # atomic mass of carbon
-cq                  <- 4.6e-6 # conversion factor for solar radiation at 550 nm from J/m2 to E/m2 (E=mol quanta)
+cq                  <- 2.04e-6 # conversion factor for solar radiation from J m-2 to mol m-2
 n0                  <- 7.15 # leaf N concentration (mg/g) not involved in photosynthesis
 m                   <- 25.0 # corresponds to parameter p in Eqn 28, Haxeltine & Prentice 1996
 t0c3                <- 250.0 # base temperature (K) in Arrhenius temperature response function for C3 plants
@@ -790,331 +779,311 @@ E_max               <- 5 # maximum transpiration rate that can be sustained unde
 
 # Initialize dataframe
 photosynthesis.df  <- data.frame()
-photosynthesis_daily.df  <- data.frame()
 
-# Get timeseries
-timeseries_year <- unique(DataList[[6]]$ts_yr)
+# Get all time-points per species
+ids = unique(DataList[[6]]$id)
 
-for(ty in timeseries_year) {
+for(id_sub in ids) {
   
-  # Subset by time-point
-  pheno.sub <- DataList[[6]][which(DataList[[6]]$ts_yr==ty),]
-  shortw.sub <- DataList[[1]][which(DataList[[1]]$ts_yr==ty),]
-  longw.sub <- DataList[[2]][which(DataList[[2]]$ts_yr==ty),]
-  prec.sub <- DataList[[3]][which(DataList[[3]]$ts_yr==ty),]
-  T_mean.sub <- DataList[[4]][which(DataList[[4]]$ts_yr==ty),]
+  # Subset input data by time-point
+  pheno_sub.df = DataList[[6]] %>% 
+    filter(id==id_sub)
+  shortw_sub.df = DataList[[1]] %>% 
+    filter(ts_yr==pheno_sub.df$ts_yr)
+  longw_sub.df = DataList[[2]] %>% 
+    filter(Tts_yr==pheno_sub.df$ts_yr)
+  prec_sub.df = DataList[[3]] %>% 
+    filter(Tts_yr==pheno_sub.df$ts_yr)
+  T_mean_sub.df = DataList[[4]] %>% 
+    filter(ts_yr==pheno_sub.df$ts_yr)
+  photoperiod_sub.df = DataList[[5]] %>% 
+    filter(lat_yr==pheno_sub.df$lat_yr)
   
-  # N.B.:
-  # for each time-point there might be multiple rows (i.e. different species)
-  species.n <- 1:nrow(pheno.sub)
+  # Generate sub-dataframe to store results
+  photosynthesis_sub.df <- pheno_sub.df %>% 
+    select(timeseries,Species,PEP_ID,YEAR)
   
-  for(sp in species.n) {
+  # Calculate the growing season GS
+  # Starting of GS is DoY_off (future projection)
+  DoY_out <- pheno_sub.df$DOY_out
+  
+  # End of the GS is the first day below 11 hours after the beginning of the growing season
+  endGS_site <- photoperiod_sub.df %>% 
+    select(as.character(1:366)) 
+  endGS_site <- which(endGS_site<11)
+  endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
+  
+  # Growing season
+  GS_interval <- DoY_out:endGS_site
+  
+  # Subset climatic variables from the starting GS
+  ShortW <- shortw_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  LongW <- longw_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  Prec <- prec_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  Tmean <- T_mean_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  photoperiod <- photoperiod_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval)) 
+  
+  ## Daily Net Photosynthesis rate (dA_n) and water stress factor (dw) are calculated daily and then accumulated by summation
+  dA_tot_year <- vector()
+  dA_gross_year <- vector()
+  dR_year <- vector()
+  dA_totw_year <- vector()
+  
+  # Loop through days of the growing season
+  for(day in GS_interval) {
+    day <- as.character(day)
     
-    # Subset by species
-    pheno.sub <- DataList[[6]][which(DataList[[6]]$ts_yr==ty),]
-    pheno.sub <- pheno.sub[sp,]     
-    photosynthesis.sub <- pheno.sub %>% 
-      select(timeseries,Species,PEP_ID,YEAR)
+    ## Net photosynthesis rate (ref. Sitch et al. 2003)
     
-    # Subset photoperiod
-    photo.sub <- DataList[[5]][which(DataList[[5]]$lat_yr==pheno.sub$lat_yr),]
-    photo.sub <- as.data.frame(photo.sub)
+    # apar: daily integral of absorbed photosynthetically active radiation (PAR), J m-2 d-1
+    # Eqn 4, Haxeltine & Prentice 1996
+    # alphaa: scaling factor for absorbed PAR at ecosystem, versus leaf, scale
+    # nearly half of short-wave radiation is PAR --> mean annual value of 0.473 observed for the irradiance ratio in the PAR (ref. Papaioannou et al. 1993) plus 8% reflected and transmitted
+    # convert in J/m^-2 day: the power in watts (W) is equal to the energy in joules (J), divided by the time period in seconds (s): 
+    # --> 1 Watt = 1 Joule/second, therefore j = W*86400
+    apar <- alphaa*ShortW[,day] * 60*60*24 
     
-    # Calculate the growing season GS
-    # Starting of GS is DoY_off (future projection)
-    DoY_out <- pheno.sub$DOY_out
+    # Calculate temperature inhibition function limiting photosynthesis at low and high temperatures (ref. Sitch et al. 2002)
+    tstress <- temp_opt.fun(Tmean[,day])
     
-    # End of the GS is the first day below 11 hours after the beginning of the growing season
-    endGS_site <- photo.sub %>% 
-      select(as.character(1:366)) 
-    endGS_site <- which(endGS_site<11)
-    endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
+    # Calculate catalytic capacity of rubisco, Vm, assuming optimal (non-water-stressed) value for lambda, i.e. lambdamc3
+    # adjust kinetic parameters for their dependency on temperature 
+    # i.e. relative change in the parameter for a 10 degC change in temperature
+    # Eqn 22, Haxeltine & Prentice 1996a
     
-    # Growing season
-    GS_interval <- DoY_out:endGS_site
+    # ko: Michaelis constant of rubisco for O2
+    ko <- ko25*q10ko**((Tmean[,day]-25.0)/10.0)
     
-    # Subset climatic variables from the starting GS
-    ShortW <- shortw.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
-    LongW <- longw.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
-    Prec <- prec.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
-    Tmean <- T_mean.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
-    photoperiod <- photo.sub %>% 
-      select(as.character(1:366)) %>% 
-      select(as.character(GS_interval)) 
+    # kc: Michaelis constant for CO2
+    kc <- kc25*q10kc**((Tmean[,day]-25.0)/10.0) 
     
-    ## Daily Net Photosynthesis rate (dA_n) and water stress factor (dw) are calculated daily and then accumulated by summation
-    dA_tot_year <- vector()
-    dA_gross_year <- vector()
-    dR_year <- vector()
-    dA_totw_year <- vector()
+    # tau: CO2/O2 specificity ratio
+    tau <- tau25*q10tau**((Tmean[,day]-25.0)/10.0) 
     
-    for(day in GS_interval) {
-      day <- as.character(day)
-      
-      ## Net photosynthesis rate (ref. Sitch et al. 2003)
-      
-      # apar: daily integral of absorbed photosynthetically active radiation (PAR), J m-2 d-1
-      # Eqn 4, Haxeltine & Prentice 1996
-      # alphaa: scaling factor for absorbed PAR at ecosystem, versus leaf, scale
-      # nearly half of short-wave radiation is PAR --> mean annual value of 0.473 observed for the irradiance ratio in the PAR (ref. Papaioannou et al. 1993) plus 8% reflected and transmitted
-      # convert in J/m^-2 day: the power in watts (W) is equal to the energy in joules (J), divided by the time period in seconds (s): 
-      # --> 1 Watt = 1 Joule/second, therefore j = W*86400
-      apar <- alphaa*ShortW[,day]*86400  
-      
-      # Calculate temperature inhibition function limiting photosynthesis at low and high temperatures (ref. Sitch et al. 2002)
-      tstress <- temp_opt.fun(Tmean[,day])
-      
-      # Calculate catalytic capacity of rubisco, Vm, assuming optimal (non-water-stressed) value for lambda, i.e. lambdamc3
-      # adjust kinetic parameters for their dependency on temperature 
-      # i.e. relative change in the parameter for a 10 degC change in temperature
-      # Eqn 22, Haxeltine & Prentice 1996a
-      
-      # ko: Michaelis constant of rubisco for O2
-      ko <- ko25*q10ko**((Tmean[,day]-25.0)/10.0)
-      
-      # kc: Michaelis constant for CO2
-      kc <- kc25*q10kc**((Tmean[,day]-25.0)/10.0) 
-     
-      # tau: CO2/O2 specificity ratio
-      tau <- tau25*q10tau**((Tmean[,day]-25.0)/10.0) 
-      
-      # gammastar: CO_2 compensation point [CO2 partial pressure, Pa]   
-      # Eqn 8, Haxeltine & Prentice 1996
-      gammastar <- po2/(2.0*tau)
-      
-      # ca: intercellular partial pressure of CO_2, Pa
-      # from Gt C per year to pCO2 yearly values for the growing season
-      # first convert to ambient pressure, ppm (ca):
-      # To convert from ppm to gigatonne of carbon:
-      # the conversion tables of the Carbon Dioxide Information Analysis Center advise that: 
-      # 1 part per million of atmospheric CO2 is equivalent to 2.13 Gigatonnes Carbon. 
-      # Using the correction for emissions/concentrstions: 
-      # 1ppm = 7.81 Gigatonnes of Carbon Dioxide.
-      co2 <- pheno.sub %>% 
-        select(CO2)
-      ca <- 7.81*as.numeric(co2)
-      
-      # Convert ambient CO2 level, ca, from mole fraction to partial pressure, Pa
-      pa <- ca*p
-      
-      # p_i: non-water-stressed intercellular CO2 partial pressure, Pa
-      # Eqn 7, Haxeltine & Prentice 1996
-      p_i <- pa*lambdamc3 
-      
-      # Calculate coefficients
-      # Eqn 4, Haxeltine & Prentice 1996
-      c1 <- tstress*alphac3*((p_i-gammastar)/(p_i+2.0*gammastar))
-      
-      # Eqn 6, Haxeltine & Prentice 1996
-      c2 <- (p_i-gammastar)/(p_i+kc*(1.0+po2/ko)) 
-      b <- bc3 # choose C3 value of b for Eqn 10, Haxeltine & Prentice 1996
-      t0 <- t0c3 # base temperature for temperature response of rubisco
-      
-      # Eqn 13, Haxeltine & Prentice 1996
-      s <- (24.0/photoperiod[,day])*b
-      
-      # Eqn 12, Haxeltine & Prentice 1996
-      sigma <- sqrt(max(0.0,1.0-(c2-s)/(c2-theta*s)))
-      
-      # vm: optimal rubisco capacity, gC m-2 d-1 
-      # Eqn 11, Haxeltine & Prentice 1996
-      # cmass: the atomic weight of carbon, used in unit conversion from molC to g 
-      vm <- (1.0/b)*(c1/c2)*((2.0*theta-1.0)*s-(2.0*theta*s-c2)*sigma)*apar*cmass*cq
-
-      # je: PAR-limited photosynthesis rate, molC m-2 h-1
-      # Eqn 3, Haxeltine & Prentice 1996
-      # Convert je from daytime to hourly basis
-      je <- c1*apar*cmass*cq/photoperiod[,day]
-      
-      # jc: rubisco-activity-limited photosynthesis rate, molC m-2 h-1
-      # Eqn 5, Haxeltine & Prentice 1996
-      jc <- c2*vm/24.0
-      
-      # agd: daily gross photosynthesis, gC m-2 d-1
-      # Eqn 2, modified with k_shape (theta)
-      if(je<1e-10 | jc<=1e-10) {
-        agd <- 0
-      } else {
-        agd <- (je+jc-sqrt((je+jc)**2.0-4.0*theta*je*jc))/(2.0*theta)*photoperiod[,day]
-      }
-      
-      # rd: daily leaf respiration, gC m-2 d-1
-      # Eqn 10, Haxeltine & Prentice 1996
-      rd <- b*vm
-      
-      # and: daily net photosynthesis (at leaf level), gC m-2 d-1
-      and <- agd-rd
-      
-      # adt: total daytime net photosynthesis, gC m-2 d-1
-      # Eqn 19, Haxeltine & Prentice 1996
-      adt <- and+(1.0-photoperiod[,day]/24.0)*rd
-      
-      # Convert adt from gC m-2 d-1 to mm m-2 d-1 using ideal gas equation
-      adtmm <- adt/cmass*8.314*(Tmean[,day]+273.3)/p*1000.0
-      
-      # Store the daily result in the yearly vector
-      dA_tot_year <- c(dA_tot_year,adt)
-      dA_gross_year <- c(dA_gross_year,agd)
-      dR_year <- c(dR_year,rd)
-      
-      
-      ## Water Stress Factor (ref. Gerten et al. 2004)
-      # soil is treated as a simple bucket consisting of two layers with fixed thickness
-      
-      # Calculate of potential evapotranspiration (ETA) rate, E_pot, mm d-1
-      
-      # delta: rate of increase of the saturation vapour pressure with temperature
-      delta <- (2.503*10^6 * exp((17.269*Tmean[,day])/(237.3+Tmean[,day])))/(237.3+Tmean[,day])^2
-      
-      # R_n: istantaneous net radiation, W m-2 = R_s net short-wave radiation flux + R_l net long-wave flux 
-      R_n <- ShortW[,day] + LongW[,day]
-      
-      # E_eq: equilibrium EvapoTranspiration
-      # from seconds to day
-      E_eq <- 24*3600*(delta/(delta+gamma))*(R_n/L) 
-      
-      # E_pot: potential EvapoTranspiration = equilibrium ETA * Priestley-Taylor coefficient 
-      E_pot <- E_eq*a_m
-      
-      # ratio: stomata-controlled ratio between intercellular and ambient CO_2 partial pressure in the absence of water limitation
-      ratio <- p_i/pa # ca. 0.8
-      
-      # g_min: minimum canopy conductance, mm s-1
-      # depends on PFT
-      if(pheno.sub$PFT=="TBL") { 
-        g_min <- 0.5*3600*24 # from seconds to day
-      } else {
-        g_min <- 0.3*3600*24
-      }
-      
-      # g_pot: nonwater-stressed potential canopy conductance, mm s-1
-      g_pot <- g_min + ((1.6*adt)/((pa/p)*(1-ratio)))
-      
-      # E_demand: atmoshperic demand 
-      # unstressed transpiration which occurs when stomatal opening is not limited by reduced water potential in the plant
-      E_demand <- E_pot/(1+(g_m/g_pot))
-      
-      # root1/2: fraction of roots present in the respective layers
-      # depends on PFT
-      if (pheno.sub$PFT=="TBL") { 
-        root1 <- 0.7  
-        root2 <- 0.3
-      } else {
-        root1 <- 0.9
-        root2 <- 0.1
-      }
-      
-      # melt: snowmelt
-      # above -2 degC the snowpack begins to melt at a maximum rate of melt
-      if(Tmean[,day] > -2){
-        melt <- (Tmean[,day] + 2)*k_melt 
-      }
-      
-      # w_max: soil texture-dependent difference between field capacity and wilting point, %
-      w_max <- pheno.sub %>% 
-        select(w_max)
-      w_max <- as.numeric(w_max)
-      
-      # E_bare: evapotranspiration from bare soil
-      E_bare <- E_pot*(root1*(pheno.sub$w1/w_max)) 
-      
-      # perc1: daily percolation from the upper to the lower soil layer
-      w1.rel <- pheno.sub$w1/(pheno.sub$w1 + pheno.sub$w2)
-      w2.rel <- pheno.sub$w2/(pheno.sub$w1 + pheno.sub$w2)
-      perc1 <- pheno.sub$k_perc*w1.rel^2
-      
-      # perc2: daily percolation from the lower soil layer to the groundwater
-      perc2 <- pheno.sub$k_perc*w2.rel^2
-      
-      # betas: rates of water extraction for the upper and the lower soil layers
-      beta1 <- (root1*pheno.sub$w1)/(root1*pheno.sub$w1 + (1-root1)*pheno.sub$w2)
-      beta2 <- 1-beta1
-      
-      # deltaw: daily changes in the water content of both layers; take into account:
-      # INs: snowmelt, precipitation
-      # OUTs: evapotranspiration, percolation, runoff
-      if(is.na(pheno.sub$ETA)) {
-        pheno.sub$ETA <- E_pot
-      } else {
-        pheno.sub$ETA <- pheno.sub$ETA
-      }
-      deltaw1 <- prec.sub[,day] + melt - E_bare - pheno.sub$ETA*beta1 - perc1
-      deltaw2 <- perc1 + melt - pheno.sub$ETA*beta2 - perc2    
-      
-      # w1 = soil moisture for the upper layer (0-10cm)
-      # w2 = soil moisture for the bottom layer (10-40cm)
-      w1 <- pheno.sub$w1 + deltaw1
-      w2 <- pheno.sub$w2 + deltaw2
-      
-      # Store values for the next day
-      pheno.sub$w1 <- w1
-      pheno.sub$w2 <- w2
-      
-      # wr: relative soil moisture wr
-      # ratio between current soil water content and plant-available water capacity
-      # wr is computed for both soil layers by weighting their relative soil water contents (w1, w2) with the fraction of roots present in the respective layer
-      wr <- root1*(pheno.sub$w1/w_max) + root2*(pheno.sub$w2/w_max)
-      
-      # E_supply: plant- and soil-limited supply function 
-      E_supply <- as.numeric(E_max*wr)
-      
-      # ETA: evapotranspiration 
-      ETA <- min(E_supply,E_demand)
-      pheno.sub$ETA <- ETA                 
-      
-      # dw: daily water stress factor
-      dw <- min(1,(E_supply/E_demand))
-      
-      # dA_totw: daily net photosynthesis modified by water stress factor
-      dA_totw <- adt*dw
-      
-      # Add daily result to the yearly vector
-      dA_totw_year <- c(dA_totw_year,dA_totw)
+    # gammastar: CO_2 compensation point [CO2 partial pressure, Pa]   
+    # Eqn 8, Haxeltine & Prentice 1996
+    gammastar <- po2/(2.0*tau)
+    
+    # Get daily CO2, averaged by year [ppm]
+    co2 <- pheno_sub.df %>% 
+      select(CO2)
+    
+    # Convert ambient CO2 level from mole fraction to partial pressure, Pa
+    pa <- co2*p
+    
+    # p_i: non-water-stressed intercellular CO2 partial pressure, Pa
+    # Eqn 7, Haxeltine & Prentice 1996
+    p_i <- pa*lambdamc3 
+    
+    # Calculate coefficients
+    # Eqn 4, Haxeltine & Prentice 1996
+    c1 <- tstress*alphac3*((p_i-gammastar)/(p_i+2.0*gammastar))
+    
+    # Eqn 6, Haxeltine & Prentice 1996
+    c2 <- (p_i-gammastar)/(p_i+kc*(1.0+po2/ko)) 
+    b <- bc3 # choose C3 value of b for Eqn 10, Haxeltine & Prentice 1996
+    t0 <- t0c3 # base temperature for temperature response of rubisco
+    
+    # Eqn 13, Haxeltine & Prentice 1996
+    s <- (24.0/photoperiod[,day])*b
+    
+    # Eqn 12, Haxeltine & Prentice 1996
+    sigma <- sqrt(max(0.0,1.0-(c2-s)/(c2-theta*s)))
+    
+    # vm: optimal rubisco capacity, gC m-2 d-1 
+    # Eqn 11, Haxeltine & Prentice 1996
+    # cmass: the atomic weight of carbon, used in unit conversion from molC to g 
+    # cq: conversion factor from apar [J m-2] to photosynthetic photon flux density [mol m-2]
+    vm <- (1.0/b)*(c1/c2)*((2.0*theta-1.0)*s-(2.0*theta*s-c2)*sigma)*apar*cmass*cq
+    
+    # je: PAR-limited photosynthesis rate, gC m-2 h-1
+    # Eqn 3, Haxeltine & Prentice 1996
+    # Convert je from daytime to hourly basis
+    je <- c1*apar*cmass*cq/photoperiod[,day]
+    
+    # jc: rubisco-activity-limited photosynthesis rate, gC m-2 h-1
+    # Eqn 5, Haxeltine & Prentice 1996
+    jc <- c2*vm/24.0
+    
+    # agd: daily gross photosynthesis, gC m-2 d-1
+    # Eqn 2, modified with k_shape (theta)
+    if(je<1e-10 | jc<=1e-10) {
+      agd <- 0
+    } else {
+      agd <- (je+jc-sqrt((je+jc)**2.0-4.0*theta*je*jc))/(2.0*theta)*photoperiod[,day]
     }
     
-    # Calculate the cumulative values for the growing season
-    cA_tot <- sum(dA_tot_year)
-    cA_gross <- sum(dA_gross_year)
-    cR_d <- sum(dR_year)
-    cA_totw <- sum(dA_totw_year)
+    # rd: daily leaf respiration, gC m-2 d-1
+    # Eqn 10, Haxeltine & Prentice 1996
+    rd <- b*vm
     
-    # Store results of daily values
-    photosynthesis_daily.sub <- photosynthesis.sub[rep(seq_len(nrow(photosynthesis.sub)),365),]
-    photosynthesis_daily.sub$DoY <- 1:365 
-    photosynthesis_daily.sub$dA_tot_year <- 0
-    photosynthesis_daily.sub$dA_totw_year <- 0
-    photosynthesis_daily.sub$dA_gross_year <- 0
-    photosynthesis_daily.sub$dR_year <- 0
-    photosynthesis_daily.sub[GS_interval,]$dA_tot_year <- dA_tot_year
-    photosynthesis_daily.sub[GS_interval,]$dA_totw_year <- dA_totw_year
-    photosynthesis_daily.sub[GS_interval,]$dA_gross_year <- dA_gross_year
-    photosynthesis_daily.sub[GS_interval,]$dR_year <- dR_year
+    # and: daily net photosynthesis (at leaf level), gC m-2 d-1
+    and <- agd-rd
     
-    # Store results of cumulative values
-    photosynthesis.sub$cA_n <- cA_tot
-    photosynthesis.sub$cA_nw <- cA_totw
-    photosynthesis.sub$cA_gross <- cA_gross
-    photosynthesis.sub$cR_d <- cR_d
+    # adt: total daytime net photosynthesis, gC m-2 d-1
+    # Eqn 19, Haxeltine & Prentice 1996
+    adt <- and+(1.0-photoperiod[,day]/24.0)*rd
     
-    # Bind final datasets
-    photosynthesis.df  <- rbind(photosynthesis.df,photosynthesis.sub)
-    photosynthesis_daily.df  <- rbind(photosynthesis_daily.df,photosynthesis_daily.sub)
+    # Convert adt from gC m-2 d-1 to mm m-2 d-1 using ideal gas equation
+    adtmm <- adt/cmass*8.314*(Tmean[,day]+273.3)/p*1000.0
     
-    print(paste0("RUN: ",ty," => ",which(timeseries_year==ty)," OF ",length(timeseries_year)))
-  }
+    # Store the daily result in the yearly vector
+    dA_tot_year <- c(dA_tot_year,adt)
+    dA_gross_year <- c(dA_gross_year,agd)
+    dR_year <- c(dR_year,rd)
+    
+    
+    ## Water Stress Factor (ref. Gerten et al. 2004)
+    # soil is treated as a simple bucket consisting of two layers with fixed thickness
+    
+    # Calculate of potential evapotranspiration (ETA) rate, E_pot, mm d-1
+    
+    # delta: rate of increase of the saturation vapour pressure with temperature
+    delta <- (2.503*10^6 * exp((17.269*Tmean[,day])/(237.3+Tmean[,day])))/(237.3+Tmean[,day])^2
+    
+    # R_n: istantaneous net radiation, W m-2 = R_s net short-wave radiation flux + R_l net long-wave flux 
+    R_n <- ShortW[,day] + LongW[,day]
+    
+    # E_eq: equilibrium EvapoTranspiration
+    # from seconds to day
+    E_eq <- 24*3600*(delta/(delta+gamma))*(R_n/L) 
+    
+    # E_pot: potential EvapoTranspiration = equilibrium ETA * Priestley-Taylor coefficient 
+    E_pot <- E_eq*a_m
+    
+    # ratio: stomata-controlled ratio between intercellular and ambient CO_2 partial pressure in the absence of water limitation
+    ratio <- p_i/pa # ca. 0.8
+    
+    # g_min: minimum canopy conductance, mm s-1
+    # depends on PFT
+    if(pheno_sub.df$PFT=="TBL") { 
+      g_min <- 0.5*3600*24 # from seconds to day
+    } else {
+      g_min <- 0.3*3600*24
+    }
+    
+    # g_pot: nonwater-stressed potential canopy conductance, mm s-1
+    g_pot <- g_min + ((1.6*adt)/((pa/p)*(1-ratio)))
+    
+    # E_demand: atmoshperic demand 
+    # unstressed transpiration which occurs when stomatal opening is not limited by reduced water potential in the plant
+    E_demand <- E_pot/(1+(g_m/g_pot))
+    
+    # root1/2: fraction of roots present in the respective layers
+    # depends on PFT
+    if (pheno_sub.df$PFT=="TBL") { 
+      root1 <- 0.7  
+      root2 <- 0.3
+    } else {
+      root1 <- 0.9
+      root2 <- 0.1
+    }
+    
+    #######
+    # N.B.: we do not have predictions of soil moisture for the future
+    # hence we calculate relative soil moisture wr by explicit simulation
+    # of soil water processes for each day and update for the next
+    #######
+    
+    # melt: snowmelt
+    # above -2 degC the snowpack begins to melt at a maximum rate of melt
+    if(Tmean[,day] > -2){
+      melt <- (Tmean[,day] + 2)*k_melt 
+    }
+    
+    # w_max: soil texture-dependent difference between field capacity and wilting point, %
+    w_max <- pheno_sub.df %>% 
+      select(w_max)
+    w_max <- as.numeric(w_max)
+    
+    # E_bare: evapotranspiration from bare soil
+    E_bare <- E_pot*(root1*(pheno_sub.df$w1/w_max)) 
+    
+    # perc1: daily percolation from the upper to the lower soil layer
+    w1.rel <- pheno_sub.df$w1/(pheno_sub.df$w1 + pheno_sub.df$w2)
+    w2.rel <- pheno_sub.df$w2/(pheno_sub.df$w1 + pheno_sub.df$w2)
+    perc1 <- pheno_sub.df$k_perc*w1.rel^2
+    
+    # perc2: daily percolation from the lower soil layer to the groundwater
+    perc2 <- pheno_sub.df$k_perc*w2.rel^2
+    
+    # betas: rates of water extraction for the upper and the lower soil layers
+    beta1 <- (root1*pheno_sub.df$w1)/(root1*pheno_sub.df$w1 + (1-root1)*pheno_sub.df$w2)
+    beta2 <- 1-beta1
+    
+    # deltaw: daily changes in the water content of both layers; take into account:
+    # INs: snowmelt, precipitation
+    # OUTs: evapotranspiration, percolation, runoff
+    if(is.na(pheno_sub.df$ETA)) {
+      pheno.sub$ETA <- E_pot
+    } else {
+      pheno_sub.df$ETA <- pheno_sub.df$ETA
+    }
+    deltaw1 <- Prec[,day] + melt - E_bare - pheno_sub.df$ETA*beta1 - perc1
+    deltaw2 <- perc1 + melt - pheno_sub.df$ETA*beta2 - perc2    
+    
+    # w1 = soil moisture for the upper layer (0-10cm)
+    # w2 = soil moisture for the bottom layer (10-40cm)
+    w1 <- pheno_sub.df$w1 + deltaw1
+    w2 <- pheno_sub.df$w2 + deltaw2
+    
+    # Store values for the next day
+    pheno_sub.df$w1 <- w1
+    pheno_sub.df$w2 <- w2
+    
+    # wr: relative soil moisture wr
+    # ratio between current soil water content and plant-available water capacity
+    # wr is computed for both soil layers by weighting their relative soil water contents (w1, w2) with the fraction of roots present in the respective layer
+    wr <- root1*(pheno_sub.df$w1/w_max) + root2*(pheno_sub.df$w2/w_max)
+    
+    # E_supply: plant- and soil-limited supply function 
+    E_supply <- as.numeric(E_max*wr)
+    
+    # ETA: evapotranspiration 
+    ETA <- min(E_supply,E_demand)
+    pheno_sub.df$ETA <- ETA                 
+    
+    # dw: daily water stress factor
+    dw <- min(1,(E_supply/E_demand))
+    
+    # dA_totw: daily net photosynthesis modified by water stress factor
+    dA_totw <- adt*dw
+    
+    # Add daily result to the yearly vector
+    dA_totw_year <- c(dA_totw_year,dA_totw)
+    
+  } # END loop through days of the growing season
+  
+  # Calculate the cumulative values for the growing season
+  cA_tot <- sum(dA_tot_year)
+  cA_gross <- sum(dA_gross_year)
+  cR_d <- sum(dR_year)
+  cA_totw <- sum(dA_totw_year)
+  
+  # Store results of cumulative values
+  photosynthesis_sub.df$cA_n <- cA_tot
+  photosynthesis_sub.df$cA_nw <- cA_totw
+  photosynthesis_sub.df$cA_gross <- cA_gross
+  photosynthesis_sub.df$cR_d <- cR_d
+  
+  # Bind final datasets
+  photosynthesis.df  <- rbind(photosynthesis.df,photosynthesis_sub.df)
+  print(paste0("COMPLETED: ",id_sub," => ",which(ids==id_sub)," OF ",length(ids)))
 }
 
 # Export dataset
-write.table(photosynthesis_daily.df,"FuturePhotosynthesis_daily.csv",sep=";",row.names=FALSE)
-print("---the Future daily Photosynthesis rate_water stress dataset has been exported---")
+write.table(photosynthesis.df,"FuturePhotosynthesis.csv",sep=";",row.names=FALSE)
+print("---the Future Photosynthesis rate has been exported---")
 
 
 ##----------------------------------------
