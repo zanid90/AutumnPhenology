@@ -80,7 +80,7 @@ texture.df <- TT.points.in.classes(
 )
 
 # Create dataframe of soil parameters and texture-to-parameter conversion
-# Ref. Sitch, S. et al. Evaluation of ecosystem dynamics, plant geography and terrestrial carbon cycling in the LPJ dynamic global vegetation model. Glob. Chang. Biol. 9, 161-185 (2003).
+# Sitch et al. (2003)
 soil_pars.df <- data.frame(
   "w_max" = c(13,13,21,14.8,10),
   "k_perc" = c(2,3,4,3.5,5),
@@ -88,19 +88,19 @@ soil_pars.df <- data.frame(
   row.names = c("VF","F","M","MF","C")
 )
 
-# Find soil parameters based on soil texture for each timeseries
+# Find soil parameters based on soil texture for each site
 soil_pars_ts.df <- data.frame()
 for(row in 1:nrow(stations)) {
   sub.df <- texture.df[row,]
   index <- min(which(sub.df == TRUE))
   pars_ts <- soil_pars.df[index,]
-  pars_ts$timeseries <- stations[row,]$timeseries
+  pars_ts$PEP_ID <- stations[row,]$PEP_ID
   soil_pars_ts.df <- rbind(soil_pars_ts.df,pars_ts)
-  print(paste0("Soil parameters for ",stations[row,]$timeseries," executed!"))
+  print(paste0("Soil parameters for site code ",stations[row,]$PEP_ID," executed!"))
 }
 
 # Add soil parameters to the phenology dataset
-pheno_soil.df <- merge(long_data,soil_pars_ts.df,by="timeseries")
+pheno_soil.df <- merge(long_data,soil_pars_ts.df,by="PEP_ID")
 rm(list=setdiff(ls(), c("pheno_soil.df", "model","main_folder")))
 
 # Unload libraries
@@ -433,7 +433,7 @@ for(ty in timeseries_year) {
 
   # Calculate the growing season GS
   # Starting of GS is DoY_off (future projection)
-  DoY_out <- pheno.sub$DOY_out
+  DoY_out <- pheno.sub$DoY_out
   
   # End of the GS is the first day below 11 hours after the beginning of the growing season
   endGS_site <- photo.sub %>% 
@@ -612,10 +612,10 @@ for(id_sub in ids) {
   # Starting of GS is DoY_off (future projection)
   DoY_out <- pheno_sub.df$DOY_out
   
-  # End of the GS is the first day below 11 hours after the beginning of the growing season
+  # End of the GS is the first day below 12 hours after the beginning of the growing season
   endGS_site <- photoperiod_sub.df %>% 
     select(as.character(1:366)) 
-  endGS_site <- which(endGS_site<11)
+  endGS_site <- which(endGS_site<12)
   endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
   
   # Growing season
@@ -805,7 +805,7 @@ for(id_sub in ids) {
   
   # Calculate the growing season GS
   # Starting of GS is DoY_off (future projection)
-  DoY_out <- pheno_sub.df$DOY_out
+  DoY_out <- pheno_sub.df$DoY_out
   
   # End of the GS is the first day below 11 hours after the beginning of the growing season
   endGS_site <- photoperiod_sub.df %>% 

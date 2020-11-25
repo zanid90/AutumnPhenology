@@ -86,7 +86,7 @@ texture.df <- TT.points.in.classes(
 )
 
 # Create dataframe of soil parameters and texture-to-parameter conversion
-# Ref. Sitch, S. et al. Evaluation of ecosystem dynamics, plant geography and terrestrial carbon cycling in the LPJ dynamic global vegetation model. Glob. Chang. Biol. 9, 161-185 (2003).
+# Sitch et al. (2003)
 soil_pars.df <- data.frame(
   "w_max" = c(13,13,21,14.8,10),
   "k_perc" = c(2,3,4,3.5,5),
@@ -94,19 +94,19 @@ soil_pars.df <- data.frame(
   row.names = c("VF","F","M","MF","C")
 )
 
-# Find soil parameters based on soil texture for each timeseries
+# Find soil parameters based on soil texture for each site
 soil_pars_ts.df <- data.frame()
 for(row in 1:nrow(stations)) {
   sub.df <- texture.df[row,]
   index <- min(which(sub.df == TRUE))
   pars_ts <- soil_pars.df[index,]
-  pars_ts$timeseries <- stations[row,]$timeseries
+  pars_ts$PEP_ID <- stations[row,]$PEP_ID
   soil_pars_ts.df <- rbind(soil_pars_ts.df,pars_ts)
-  print(paste0("Soil parameters for ",stations[row,]$timeseries," executed!"))
+  print(paste0("Soil parameters for site code ",stations[row,]$PEP_ID," executed!"))
 }
 
 # Add soil parameters to the phenology dataset
-pheno_soil.df <- merge(pheno_out.df,soil_pars_ts.df,by="timeseries")
+pheno_soil.df <- merge(pheno_out.df,soil_pars_ts.df,by="PEP_ID")
 rm(list=setdiff(ls(), c("pheno_soil.df","main_folder")))
 
 # Unload libraries
@@ -132,17 +132,18 @@ CO2_mauna <- fread("monthly_in_situ_co2_mlo.csv")
 
 # Filter for years of interest (1948-2015)
 CO2_ETH <- CO2_ETH %>% 
-    filter(year %in% unique((pheno_soil_co2.df$YEAR)) )
+    filter(year %in% unique((pheno_soil.df$YEAR)) )
 CO2_mauna <- CO2_mauna %>% 
-    filter(year == 2015)
+    filter(Yr == 2015)
 
 # Select values for northern hemisphere
 CO2_ETH <- CO2_ETH %>% 
     select(year,month,data_mean_nh)
+colnames(CO2_ETH) <- c("YEAR","MONTH","CO2")
 CO2_mauna <- CO2_mauna %>% 
-    select(Yr,Mn,CO2)
+    select(Yr,Mn,CO2) 
+colnames(CO2_mauna) <- c("YEAR","MONTH","CO2")
 CO2.df <- rbind(CO2_ETH,CO2_mauna)
-colnames(CO2.df) <- c("YEAR","MONTH","CO2")
 
 # Add monthly CO2 values to the phenology dataset
 pheno_soil_co2.df <- data.frame()
@@ -601,7 +602,7 @@ for(id_sub in ids) {
   # Starting of GS is DoY_off (future projection)
   DoY_out <- pheno_sub.df$DOY_out
   
-  # End of the GS is the first day below 11 hours after the beginning of the growing season
+  # End of the GS is the first day below 12 hours after the beginning of the growing season
   endGS_site <- photoperiod_sub.df %>% 
     select(as.character(1:366)) 
   endGS_site <- which(endGS_site<11)
@@ -628,8 +629,9 @@ for(id_sub in ids) {
   photo_min <- min(photoperiod) 
   photo_max <- max(photoperiod) 
   
-  # Initialize vector to store daily GSI
+  # Initialize vector to store daily GSI and usable vapour pressure deficit iVPD
   iGSI_year <- 0
+  iVPD_year <- 0
   
   # Loop through days in the growing season
   for(day in GS_interval) {
@@ -654,12 +656,15 @@ for(id_sub in ids) {
     # Calculate daily GSI
     iGSI <- as.numeric(iVPD*iOpt*iPhoto)
     
-    # Add to the cumulative cGSI
+    # Add to the cumulative VPD and cGSI
+    iVPD_year <- c(iVPD_year,iVPD)
+    cVPD <- sum(iVPD_year)
     iGSI_year <- c(iGSI_year,iGSI)
     cGSI <- sum(iGSI_year)
   }
   
   # Store results
+  GSI.sub$iVPD <- cVPD
   GSI.sub$cGSI <- cGSI
   
   # Bind final datasets
@@ -674,9 +679,10 @@ for(id_sub in ids) {
 
 # Monthly atmoshperic CO2 concentration
 # AIC ETH dataset (1948-2014)
+# AIC ETH dataset (1948-2014)
 CO2_ETH.df <- fread("mole_fraction_of_carbon_dioxide_in_air_input.csv") %>%
   select(year,month,data_mean_nh) %>%
-  filter(year %in% unique((drivers.df$YEAR))) %>%
+  filter(year %in% c(1948:2014)) %>%
   group_by(year,month) %>%
   summarise(CO2=sum(data_mean_nh)) %>%
   rename(YEAR=year)
@@ -702,12 +708,12 @@ for(id_sub in ids) {
   T_max_sub.df = DataList[[1]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   T_min_sub.df = DataList[[2]] %>% 
-    filter(Tts_yr==pheno_sub.df$ts_yr)
+    filter(ts_yr==pheno_sub.df$ts_yr)
   CO2_sub.df <- CO2_monthly.df %>% 
     filter(YEAR == unique(pheno_sub.df$YEAR))
   
   # Define the current year in calendar units
-  year <- strsplit(ty,"_")[[1]][2]
+  year <- strsplit(id_sub,"_")[[1]][3]
   start_doy <- paste(year,"-01-01", sep="") 
   end_doy <- paste(year,"-12-31", sep="")
   days <- seq(as.Date(start_doy), as.Date(end_doy), by="days")
@@ -804,33 +810,35 @@ for(id_sub in ids) {
 # DataList[[3]] = precipitation [mm]
 # DataList[[4]] = mean temperature [degC]
 # DataList[[5]] = soil moisture (0-10cm depth) [mm]
-# DataList[[6]] = soil moisture (10-40cm depth) [mm] 
-# DataList[[7]] = photoperiod [hours] 
-# DataList[[8]] = phenology_soil_CO2 data [DAY for leaf.out, pCO2 and soil parameters] --> pCO2 are monthly values
+# DataList[[6]] = soil moisture (10-40cm depth) [mm]
+# DataList[[7]] = soil temperature (0-10cm depth) [degC]
+# DataList[[8]] = photoperiod [hours] 
+# DataList[[9]] = phenology_soil_CO2_LAI data [DAY for leaf.out, pCO2, soil parameters, and LAI] 
+# Notes: pCO2 are monthly values and leaf area index (LAI) is the time-space, species-specific output from LPJ-GUESS v.4.1
 
-vn  <- c('Short-wave Radiation','Long-wave Radiation','Precipitation','Mean Temperature','Soil Moisture 0-10 cm','Soil Moisture 10-40 cm')
+vn  <- c('Short-wave Radiation','Long-wave Radiation','Precipitation','Mean Temperature','Soil Moisture 0-10 cm','Soil Moisture 10-40 cm','Soil temperature')
 DataList <- replicate(length(vn),data.frame())
 for(i in 1:length(vn)) {
   data <- fread(paste0(vn[i],".csv"))
   data <- as.data.frame(data)
   DataList[[i]] <- data
 }
-DataList[[7]] <- fread("Photoperiod.csv")
-DataList[[8]] <- pheno_soil_co2.df
+DataList[[8]] <- fread("Photoperiod.csv")
+DataList[[9]] <- pheno_soil_co2.df
 
 # Add the time-point identifiers
-for(i in c(1:6,8)) {
+for(i in c(1:7,9)) {
   DataList[[i]]$ts_yr  <- paste0(DataList[[i]]$PEP_ID,"_",DataList[[i]]$YEAR)
 }
 
 # Add unique id for phenological observations
-DataList[[8]]$id  <- paste0(DataList[[8]]$PEP_ID,"_",DataList[[8]]$Species,"_",DataList[[8]]$YEAR)
+DataList[[9]]$id  <- paste0(DataList[[8]]$PEP_ID,"_",DataList[[8]]$Species,"_",DataList[[8]]$YEAR)
 
 # Add plant functional type label 
 # T-BL-SG: Temperate broad-leaved summergreen tree
 # B-NL-SG: Boreal needle-leaved summergreen tree
-DataList[[8]]$PFT <- "TBL" 
-DataList[[8]][which(DataList[[8]]$Species=="Larix decidua"),]$PFT <- "BNL"
+DataList[[9]]$PFT <- "TBL" 
+DataList[[9]][which(DataList[[8]]$Species=="Larix decidua"),]$PFT <- "BNL"
 
 ## Helper functions
 
@@ -879,7 +887,7 @@ tmc3                <- 45.0 # maximum temperature for C3 photosynthesis
 ## Parameters for the Water balance module
 gamma               <- 65 # psychrometer constant gamma [Pa/K]
 L                   <- 2.5*10^6 # latent heat of vaporization of water L [J/kg]
-emissivity          <- 0.6 # emissivity for coniferous and deciduous surface type
+emissivity          <- 0.9 # emissivity for coniferous and deciduous surface type
 k_sb                <- 5.670367*10^-8 # Stefan-Boltzman constant [W/m^2 K^4]
 d1                  <- 0.5 # thickness of upper soil layer [m]
 d2                  <- 1 # thickness of lower soil layer [m]    
@@ -899,26 +907,28 @@ E_max               <- 5 # maximum transpiration rate that can be sustained unde
 photosynthesis.df  <- data.frame()
 
 # Get all time-points per species
-ids = unique(DataList[[8]]$id)
+ids = unique(DataList[[9]]$id)
 
 for(id_sub in ids) {
   
   # Subset input data by time-point
-  pheno_sub.df = DataList[[8]] %>% 
+  pheno_sub.df = DataList[[9]] %>% 
     filter(id==id_sub)
   shortw_sub.df = DataList[[1]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   longw_sub.df = DataList[[2]] %>% 
-    filter(Tts_yr==pheno_sub.df$ts_yr)
+    filter(ts_yr==pheno_sub.df$ts_yr)
   prec_sub.df = DataList[[3]] %>% 
-    filter(Tts_yr==pheno_sub.df$ts_yr)
+    filter(ts_yr==pheno_sub.df$ts_yr)
   T_mean_sub.df = DataList[[4]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   SoilMoist_0_10.df = DataList[[5]] %>% 
     filter(Tts_yr==pheno_sub.df$ts_yr)
   SoilMoist_10_40.df = DataList[[6]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
-  photoperiod_sub.df = DataList[[7]] %>% 
+  T_soil_sub.df = DataList[[7]] %>% 
+    filter(ts_yr==pheno_sub.df$ts_yr)
+  photoperiod_sub.df = DataList[[8]] %>% 
     filter(lat_yr==pheno_sub.df$lat_yr)
     
   # Generate sub-dataframe to store results
@@ -927,7 +937,7 @@ for(id_sub in ids) {
 
   # Calculate the growing season GS
   # Starting of GS is DoY_off (future projection)
-  DoY_out <- pheno_sub.df$DOY_out
+  DoY_out <- pheno_sub.df$DoY_out
   
   # End of the GS is the first day below 11 hours after the beginning of the growing season
   endGS_site <- photoperiod_sub.df %>% 
@@ -957,6 +967,9 @@ for(id_sub in ids) {
   SoilMoist_10_40 <- SoilMoist_10_40_sub.df %>% 
     select(as.character(1:366)) %>% 
     select(as.character(GS_interval))
+  Tsoil <- T_soil_sub.df %>% 
+    select(as.character(1:366)) %>% 
+    select(as.character(GS_interval))
   photoperiod <- photoperiod_sub.df %>% 
     select(as.character(1:366)) %>% 
     select(as.character(GS_interval)) 
@@ -973,13 +986,28 @@ for(id_sub in ids) {
     
     ## Net photosynthesis rate (ref. Sitch et al. 2003)
     
-    # apar: daily integral of absorbed photosynthetically active radiation (PAR), J m-2 d-1
+    ## Calculate Net short-wave radiation (or irradiance, R_n) from downward short-wave and upward long-wave radiation
+    # Eqn 4, Lagouarde and Brunet 1993
+    R_l <- emissivity * k_sb * (237.3+Tsoil[,day])^4 
+    R_n <- ShortW[,day] + R_l
+    
+    ## PAR is the daily integral of photosynthetically active radiation [W/day]
+    # nearly half of short-wave radiation is PAR --> mean annual value of 0.473 observed for the irradiance ratio in the PAR (ref. Papaioannou et al. 1993) 
     # Eqn 4, Haxeltine & Prentice 1996
-    # alphaa: scaling factor for absorbed PAR at ecosystem, versus leaf, scale
-    # nearly half of short-wave radiation is PAR --> mean annual value of 0.473 observed for the irradiance ratio in the PAR (ref. Papaioannou et al. 1993) plus 8% reflected and transmitted
-    # convert in J/m^-2 day: the power in watts (W) is equal to the energy in joules (J), divided by the time period in seconds (s): 
+    par <- R_n*0.5
+    
+    ## APAR is the daily integral of absorbed photosynthetically active radiation [W/day]
+    # The fraction of PAR absorbed by leaves (fapar) is derived by species-specific leaf area index (LAI)
+    # using the Lamber-Beer law to calculate the radiation reaching the soil (Rad_soil)
+    # therefore, fapar is the remaining proportion
+    # Eqn 27, Prentice et al. 1993
+    Rad_soil <- exp(-.5 * pheno.sub$LAI)
+    fapar <- 1-Rad_soil
+    apar <- fapar*par
+
+    # Convert to J/m^-2 day: the power in watts (W) is equal to the energy in joules (J), divided by the time period in seconds (s): 
     # --> 1 Watt = 1 Joule/second, therefore j = W*86400
-    apar <- alphaa*ShortW[,day] * 60*60*24 
+    apar <- apar * 60*60*24
     
     # Calculate temperature inhibition function limiting photosynthesis at low and high temperatures (ref. Sitch et al. 2002)
     tstress <- temp_opt.fun(Tmean[,day])
@@ -1205,6 +1233,7 @@ drivers.df$HD35 <- Factors.df$HD35
 drivers.df$FD <- Factors.df$FD
 drivers.df$FD_spring <- Factors.df$FD_spring
 drivers.df$ci <- ci.df$ci
+drivers.df$iVPD <- GSI$iVPD
 drivers.df$cGSI <- GSI$cGSI
 drivers.df$`cA_tot-w` <- photosynthesis.cum$cA_tot
 drivers.df$cA_tot <- photosynthesis.cum$cA_totw
@@ -1223,4 +1252,6 @@ write.table(drivers.df,"DataMeta_3_Drivers.csv",sep=";",row.names=FALSE)
 
 # Haxeltine, A., & Prentice, I. C. BIOME3: An equilibrium terrestrial biosphere model based on ecophysiological constraints, resource availability, and competition among plant functional types. Glob Biogeochem Cy. 10, 693-709 (1996).
 # Jolly, W. M., Nemani, R. & Running, S. W. A generalized, bioclimatic index to predict foliar phenology in response to climate. Glob. Chang. Biol. 11, 619-632 (2005).
+# Lagouarde, J. P., & Brunet, Y. A simple model for estimating the daily upward longwave surface radiation flux from NOAA-AVHRR data. International Journal of Remote Sensing, 14(5), 907-925 (1993).
+# Sitch, S. et al. Evaluation of ecosystem dynamics, plant geography and terrestrial carbon cycling in the LPJ dynamic global vegetation model. Glob. Chang. Biol. 9, 161-185 (2003).
 # Smith B., Prentice I. C., & Sykes M. T. Representation of vegetation dynamics in the modelling of terrestrial ecosystems: comparing two contrasting approaches within European climate space. Glob Ecol Biogeogr. 10, 621-37 (2001).

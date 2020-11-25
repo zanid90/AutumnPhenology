@@ -81,7 +81,7 @@ library(ppcor)
 # anomalies = 
 
 # Select variables
-varsel <- c("DoY_off", "cA_tot","DoY_out","temp_GS","temp_aut2","HRD","ci")
+varsel <- c("DoY_off", "cA_tot","DoY_out","temp_GS","temp_aut2","HRD","iVPD")
 
 # Calculate site-anomalies
 drivers_sel_anomalies.df <- drivers.df %>% 
@@ -92,7 +92,7 @@ drivers_sel_anomalies.df <- drivers.df %>%
          tempGS_anomaly = mean(temp_GS),
          tempaut2_anomaly = mean(temp_aut2),
          prec_anomaly = mean(HRD),
-         ci_anomaly = mean(ci),
+         iVPD_anomaly = mean(iVPD),
          NPP_anomaly = mean(cA_tot)) %>% 
   ungroup(PEP_ID)
 drivers_sel_anomalies.df$autumn_anomaly <- drivers_sel_anomalies.df$DoY_off - drivers_sel_anomalies.df$autumn_anomaly
@@ -100,7 +100,7 @@ drivers_sel_anomalies.df$spring_anomaly <- drivers_sel_anomalies.df$DoY_out - dr
 drivers_sel_anomalies.df$tempGS_anomaly <- drivers_sel_anomalies.df$temp_GS - drivers_sel_anomalies.df$tempGS_anomaly
 drivers_sel_anomalies.df$tempaut2_anomaly <- drivers_sel_anomalies.df$temp_aut2 - drivers_sel_anomalies.df$tempaut2_anomaly
 drivers_sel_anomalies.df$prec_anomaly <- drivers_sel_anomalies.df$HRD - drivers_sel_anomalies.df$prec_anomaly
-drivers_sel_anomalies.df$ci_anomaly <- drivers_sel_anomalies.df$ci - drivers_sel_anomalies.df$ci_anomaly
+drivers_sel_anomalies.df$iVPD_anomaly <- drivers_sel_anomalies.df$iVPD - drivers_sel_anomalies.df$iVPD_anomaly
 drivers_sel_anomalies.df$NPP_anomaly <- drivers_sel_anomalies.df$cA_tot - drivers_sel_anomalies.df$NPP_anomaly
 
 
@@ -108,18 +108,18 @@ drivers_sel_anomalies.df$NPP_anomaly <- drivers_sel_anomalies.df$cA_tot - driver
 # Control for all variables
 pcorr.tm <- drivers_sel_anomalies.df %>%
   group_by(timeseries) %>%
-  summarise(pcorr_cAtot = pcor.test(autumn_anomaly, NPP_anomaly, c(ci_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
-            pcorr_CO2 = pcor.test(autumn_anomaly, ci_anomaly, c(NPP_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
-            pcorr_tempGS = pcor.test(autumn_anomaly, tempGS_anomaly, c(ci_anomaly,NPP_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
-            pcorr_prec = pcor.test(autumn_anomaly, prec_anomaly, c(ci_anomaly,tempGS_anomaly,NPP_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
-            pcorr_tempaut2 = pcor.test(autumn_anomaly, tempaut2_anomaly, c(ci_anomaly,tempGS_anomaly,prec_anomaly,NPP_anomaly,spring_anomaly))[,1],
-            pcorr_spring = pcor.test(autumn_anomaly, spring_anomaly, c(ci_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,NPP_anomaly))[,1]
+  summarise(pcorr_cAtot = pcor.test(autumn_anomaly, NPP_anomaly, c(iVPD_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
+            pcorr_VPD = pcor.test(autumn_anomaly, iVPD_anomaly, c(NPP_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
+            pcorr_tempGS = pcor.test(autumn_anomaly, tempGS_anomaly, c(iVPD_anomaly,NPP_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
+            pcorr_prec = pcor.test(autumn_anomaly, prec_anomaly, c(iVPD_anomaly,tempGS_anomaly,NPP_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
+            pcorr_tempaut2 = pcor.test(autumn_anomaly, tempaut2_anomaly, c(iVPD_anomaly,tempGS_anomaly,prec_anomaly,NPP_anomaly,spring_anomaly))[,1],
+            pcorr_spring = pcor.test(autumn_anomaly, spring_anomaly, c(iVPD_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,NPP_anomaly))[,1]
   )
 
 # Average values across timeseries
 meanpcorr_across_timeseries <- pcorr.tm %>%
   summarise(`NPP anomaly` = mean(pcorr_cAtot),
-            `CO2 anomaly` = mean(pcorr_CO2),
+            `VPD anomaly` = mean(pcorr_VPD),
             `Summer temperature anomaly` = mean(pcorr_tempGS),
             `Precipitation anomaly` = mean(pcorr_prec),
             `Spring anomaly` = mean(pcorr_spring),
@@ -130,7 +130,7 @@ meanpcorr_across_timeseries <- pcorr.tm %>%
 # Standard errors across timeseries
 SE_across_timeseries <- pcorr.tm %>%
   summarise(`NPP anomaly` = se(pcorr_cAtot),
-            `CO2 anomaly` = se(pcorr_CO2),
+            `VPD anomaly` = se(pcorr_VPD),
             `Summer temperature anomaly` = se(pcorr_tempGS),
             `Precipitation anomaly` = se(pcorr_prec),
             `Spring anomaly` = se(pcorr_spring),
@@ -142,7 +142,7 @@ meanpcorr_across_timeseries <- meanpcorr_across_timeseries %>%
 # Set the order of predictors to plot
 meanpcorr_across_timeseries$predictors <- factor(meanpcorr_across_timeseries$predictors,
                                                  levels=c("NPP anomaly",
-                                                          "CO2 anomaly",
+                                                          "VPD anomaly",
                                                           "Summer temperature anomaly",
                                                           "Precipitation anomaly",
                                                           "Spring anomaly",
@@ -183,18 +183,18 @@ fig_1b
 ## Partial correlation - Species level
 pcorr.sp <- drivers_sel_anomalies.df %>%
   group_by(Species,timeseries) %>%
-  summarise(pcorr_cAtot = pcor.test(autumn_anomaly, NPP_anomaly, c(ci_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
-            pcorr_CO2 = pcor.test(autumn_anomaly, ci_anomaly, c(NPP_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
-            pcorr_tempGS = pcor.test(autumn_anomaly, tempGS_anomaly, c(ci_anomaly,NPP_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
-            pcorr_prec = pcor.test(autumn_anomaly, prec_anomaly, c(ci_anomaly,tempGS_anomaly,NPP_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
-            pcorr_tempaut2 = pcor.test(autumn_anomaly, tempaut2_anomaly, c(ci_anomaly,tempGS_anomaly,prec_anomaly,NPP_anomaly,spring_anomaly))[,1],
-            pcorr_spring = pcor.test(autumn_anomaly, spring_anomaly, c(ci_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,NPP_anomaly))[,1]
+  summarise(pcorr_cAtot = pcor.test(autumn_anomaly, NPP_anomaly, c(iVPD_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
+            pcorr_VPD = pcor.test(autumn_anomaly, iVPD_anomaly, c(NPP_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
+            pcorr_tempGS = pcor.test(autumn_anomaly, tempGS_anomaly, c(iVPD_anomaly,NPP_anomaly,prec_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
+            pcorr_prec = pcor.test(autumn_anomaly, prec_anomaly, c(iVPD_anomaly,tempGS_anomaly,NPP_anomaly,tempaut2_anomaly,spring_anomaly))[,1],
+            pcorr_tempaut2 = pcor.test(autumn_anomaly, tempaut2_anomaly, c(iVPD_anomaly,tempGS_anomaly,prec_anomaly,NPP_anomaly,spring_anomaly))[,1],
+            pcorr_spring = pcor.test(autumn_anomaly, spring_anomaly, c(iVPD_anomaly,tempGS_anomaly,prec_anomaly,tempaut2_anomaly,NPP_anomaly))[,1]
   )
 
 # Average values per species
 meanpcorr_per_species <- pcorr.sp %>%
   summarise(`NPP anomaly` = mean(pcorr_cAtot),
-            `CO2 anomaly` = mean(pcorr_CO2),
+            `VPD anomaly` = mean(pcorr_VPD),
             `Summer temperature anomaly` = mean(pcorr_tempGS),
             `Precipitation anomaly` = mean(pcorr_prec),
             `Spring anomaly` = mean(pcorr_spring),
@@ -204,7 +204,7 @@ meanpcorr_per_species <- pcorr.sp %>%
 # Standard errors per species
 SE_per_species <- pcorr.sp %>%
   summarise(`NPP anomaly` = se(pcorr_cAtot),
-            `CO2 anomaly` = se(pcorr_CO2),
+            `VPD anomaly` = mean(pcorr_VPD),
             `Summer temperature anomaly` = se(pcorr_tempGS),
             `Precipitation anomaly` = se(pcorr_prec),
             `Spring anomaly` = se(pcorr_spring),
@@ -215,7 +215,7 @@ meanpcorr_per_species$SE_values <- SE_per_species$SE_values
 # Set the order of predictors to plot
 meanpcorr_per_species$predictors <- factor(meanpcorr_per_species$predictors,
                                               levels=c("NPP anomaly",
-                                                       "CO2 anomaly",
+                                                       "VPD anomaly",
                                                        "Summer temperature anomaly",
                                                        "Precipitation anomaly",
                                                        "Spring anomaly",
@@ -228,7 +228,7 @@ plot_colors <-  colorRampPalette(paletteBlueRed)(6)
 
 # Plot 
 # SUPPLEMENTARY FIGURE 2 (Fig. S2)
-sup_fig_5 <- ggplot(data = meanpcorr_per_species, aes(x=Species, y=mean_values, fill=predictors)) +
+fig_s2 <- ggplot(data = meanpcorr_per_species, aes(x=Species, y=mean_values, fill=predictors)) +
   geom_bar(position = position_dodge(preserve = "single"),
             stat="identity") + 
   geom_errorbar(aes(ymin=mean_values-SE_values, ymax=mean_values+SE_values),
@@ -253,7 +253,7 @@ sup_fig_5 <- ggplot(data = meanpcorr_per_species, aes(x=Species, y=mean_values, 
         panel.grid.minor = element_blank(),
         panel.background = element_rect(fill = 'white', colour = 'black')
   ) 
-sup_fig_5
+fig_s2
 ggsave(filename = "FigureS2.jpeg",
        device = "jpeg",
        width = 5.8*4, units = "cm",
@@ -299,15 +299,15 @@ for (species in all.species){
 }
 
 # Calculate r2s with site as random effect
-fit.NPP <- lmer(DoY_off~cA_tot+(1|PEP_ID), data=output)
+fit.NPP <- lmer(DoY_off~cA_tot+(1|timeseries), data=drivers.df)
 r2s <- as.data.frame(r.squaredGLMM(fit.NPP))
-fit.CO2 <- lmer(DoY_off~ci+(1|PEP_ID), data=output)
-r2_CO2 <- as.data.frame(r.squaredGLMM(fit.CO2))[1]
-fit.tempaut <- lmer(DoY_off~temp_aut2+(1|PEP_ID), data=output)
+fit.VPD <- lmer(DoY_off~iVPD+(1|timeseries), data=drivers.df)
+r2_VPD <- as.data.frame(r.squaredGLMM(fit.VPD))[1]
+fit.tempaut <- lmer(DoY_off~temp_aut2+(1|timeseries), data=drivers.df)
 r2_tempaut <- as.data.frame(r.squaredGLMM(fit.tempaut))[1]
-fit.tempGS <- lmer(DoY_off~temp_GS+(1|PEP_ID), data=output)
+fit.tempGS <- lmer(DoY_off~temp_GS+(1|timeseries), data=drivers.df)
 r2_tempGS <- as.data.frame(r.squaredGLMM(fit.tempGS))[1]
-fit.prec <- lmer(DoY_off~HRD+(1|PEP_ID), data=output)
+fit.prec <- lmer(DoY_off~HRD+(1|timeseries), data=drivers.df)
 r2_prec <- as.data.frame(r.squaredGLMM(fit.prec))[1]
 
 # Plot 
@@ -397,6 +397,16 @@ full_autumn_model <- piecewiseSEM::psem(
 summary(climate_autumn_model, .progressBar = FALSE)
 summary(full_autumn_model, .progressBar = FALSE)
 
+# Adjusted RMSE
+climate_model <- ' cA_tot ~ DoY_out + temp_GS + HRD + iVPD
+                  HRD ~~ temp_GS '
+climate_model.fit <- lavaan::sem(climate_model, data = drivers_sel_anomalies.df, estimator = 'MLM')
+lavaan::fitmeasures(climate_model.fit, c("rmsea","rmsea.ci.lower","rmsea.ci.upper"))
+full_model <- ' cA_tot ~ DoY_out + temp_GS + HRD + iVPD
+                  DoY_off ~ cA_tot + temp_aut2 '
+full_model.fit <- lavaan::sem(full_model, data = drivers_sel_anomalies.df, estimator = 'MLM')
+lavaan::fitmeasures(full_model.fit, c("rmsea","rmsea.ci.lower","rmsea.ci.upper"))
+
 # Compare models
 anova(climate_autumn_model,full_autumn_model)
 piecewiseSEM::infCrit(climate_autumn_model)
@@ -407,23 +417,15 @@ climate_stdest <- piecewiseSEM::coefs(climate_autumn_model)$Std.Estimate
 full_stdest <- piecewiseSEM::coefs(full_autumn_model)$Std.Estimate
 
 # Extract R2
-# marginal: variance explained only by fixed effects
-# conditional: variance explained by the entire model, i.e., both fixed effects and random effects
 climate_r2 <- piecewiseSEM::rsquared(climate_autumn_model)[1,]
 full_r2 <- piecewiseSEM::rsquared(full_autumn_model)[1,]
-
-# Calculate adjusted R2
-adjR2  <- function(r2, n, p) {
-  1 - ((1-r2) * ((n-1)/(n-p-1)))
-}
-climate_adjR2 <- adjR2(climate_r2$Marginal,nrow(drivers_sel_anomalies.df),4)
-full_adjR2 <- adjR2(full_r2$Marginal,nrow(drivers_sel_anomalies.df),2)
 
 # Plot
 # FIGURE 1C
 library(diagram)
 
 # Plot flow-charts
+pdf("Figure_1C.pdf",width = 5.8*4)
 par(mar=c(1,1,1,1), mfrow=c(1,2))
 
 # Flow-chart with all significant environmental cues as predictors of leaf senescence
@@ -433,7 +435,7 @@ openplotmat()
 text(0.025,0.95,"c",cex=2.25,font=2)
 
 # Define names of variables
-names <- c("Spring\nAnomaly","Autumn\nTemperature","Summer\nTemperature","Summer\nPrecipitation","CO2\nConcentration",
+names <- c("Spring\nAnomaly","Summer\nTemperature","Summer\nPrecipitation","Vapour\nPressure Deficit","Autumn\nTemperature",
            "Autumn\nAnomaly")
 
 # Define coordinates
@@ -469,7 +471,7 @@ openplotmat()
 elpos <- coordinates(c(4,2,1))
 
 # Define names of variables
-names <- c("Spring\nAnomaly","Summer\nTemperature","Summer\nPrecipitation","CO2\nConcentration",
+names <- c("Spring\nAnomaly","Summer\nTemperature","Summer\nPrecipitation","Vapour\nPressure Deficit",
            "Photosynthesis","Autumn\nTemperature",
            "Autumn\nAnomaly")
 
@@ -498,3 +500,5 @@ for(i in 1:6) {
 
 # Add r2
 text(arrpos[i,1]+0.12,0.18,paste0("R2 = ",round(full_r2[1,5],2)),cex=1.25)
+
+dev.off()
