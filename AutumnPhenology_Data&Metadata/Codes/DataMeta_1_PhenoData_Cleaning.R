@@ -54,7 +54,7 @@ pheno_off.df$timeseries <- paste0(pheno_off.df$PEP_ID,"_",pheno_off.df$Species)
 # Keep only timeseries with observations for both spring and autumn leaf phenology 
 ts_common <- intersect(pheno_out.df$timeseries, pheno_off.df$timeseries)
 pheno_out.df <- pheno_out.df[pheno_out.df$timeseries %in% ts_common,] 
-pheno_out.df <- pheno_off.df[pheno_off.df$timeseries %in% ts_common,]
+pheno_off.df <- pheno_off.df[pheno_off.df$timeseries %in% ts_common,]
 
 
 ##----------------------------------------
