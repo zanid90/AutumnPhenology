@@ -400,8 +400,8 @@ for(ty in timeseries_year) {
   monthly_vals <- as.data.frame(aggregate(z, by=month, FUN=mean))
 
   # Growing season GS
-  DoY_out <- pheno.sub$DOY_out
-  DoY_off <- pheno.sub$DOY_off
+  DoY_out <- pheno.sub$DoY_out
+  DoY_off <- pheno.sub$DoY_off
   GS_interval <- DoY_out:DoY_off
 
   # Get the months of predicted leaf-out and leaf-off
@@ -436,7 +436,7 @@ for(ty in timeseries_year) {
     filter(Prec>=2)
   factors.sub$RD <- nrow(RD)
 
-  # Calculate the number of rainy days of during driest months
+  # Calculate the number of rainy days during driest months
   RD_summer <- daily_vals %>% 
     filter(MONTH %in% monthDry3) %>% 
     filter(Prec>=2)
@@ -488,6 +488,8 @@ DataList[[5]] <- photo.df
 for(i in c(1:4)) {
   DataList[[i]]$ts_yr  <- paste0(DataList[[i]]$PEP_ID,"_",DataList[[i]]$YEAR)
 }
+DataList[[4]]$lat_yr  <- paste0(DataList[[4]]$LAT,"_",DataList[[4]]$YEAR)
+DataList[[5]]$lat_yr  <- paste0(DataList[[5]]$LAT,"_",DataList[[5]]$YEAR)
 
 # Add unique id for phenological observations
 DataList[[4]]$id  <- paste0(DataList[[4]]$PEP_ID,"_",DataList[[4]]$Species,"_",DataList[[4]]$YEAR)
@@ -505,22 +507,19 @@ degC_to_kPa.fun <- function(temp) {
   return(out)
 }
 
-# Temperature inhibition function from LPJ-GUESS 
-temp_opt.fun <- function(temp) {
-  x1        <- 1
-  x2        <- 18
-  x3        <- 25
-  x4        <- 45
-  k1        <- 2.*log((1/0.99)-1.)/(x1-x2)
-  k2        <- (x1+x2)/2
-  low       <- 1/(1+exp(k1*(k2-temp)))
-  k3        <- log(0.99/0.01)/(x4-x3)
-  high      <- 1-0.01*exp(k3*(temp-x3))
-  tstress   <- low*high 
-  if(tstress>=0) {
-    tstress <- tstress
-  } else {
-    tstress <- 0
+# Optimal temperature function
+# temp = temperature
+# temp_min = minimum value during the growing season 
+# temp_max = maxmum value during the growing season 
+temp_opt.fun <- function(temp, temp_min, temp_max) {
+  if(temp<=temp_min) {
+    tstress    <- 0
+  }
+  if(temp<temp_max & temp>temp_min) {
+    tstress    <- (temp-temp_min)/(temp_max-temp_min)
+  }
+  if(temp>=temp_max) {
+    tstress    <- 1
   }
   return(tstress)
 }
@@ -579,15 +578,15 @@ for(id_sub in ids) {
   T_max_sub.df = DataList[[1]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   T_min_sub.df = DataList[[2]] %>% 
-    filter(Tts_yr==pheno_sub.df$ts_yr)
+    filter(ts_yr==pheno_sub.df$ts_yr)
   T_mean_sub.df = DataList[[3]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
-  photoperiod_sub.df = photoperiod.df %>% 
+  photoperiod_sub.df = DataList[[5]] %>% 
     filter(lat_yr==pheno_sub.df$lat_yr)
-    
+  
   # Generate sub-dataframe to store results
   GSI.sub <- pheno_sub.df %>% 
-    select(timeseries,ts_yr,Species,PEP_ID,YEAR)
+    select(timeseries,Species,PEP_ID,YEAR)
   
   # Estimate VPD parameters based on plant-functional type (PFT)
   if(pheno_sub.df$PFT=="BNL") {
@@ -600,7 +599,7 @@ for(id_sub in ids) {
   
   # Calculate the growing season GS
   # Starting of GS is DoY_off (future projection)
-  DoY_out <- pheno_sub.df$DOY_out
+  DoY_out <- pheno_sub.df$DoY_out
   
   # End of the GS is the first day below 12 hours after the beginning of the growing season
   endGS_site <- photoperiod_sub.df %>% 
@@ -621,11 +620,13 @@ for(id_sub in ids) {
   Tmean <- T_mean_sub.df %>% 
     select(as.character(1:366)) %>% 
     select(as.character(GS_interval)) 
-  photoperiod <- photo_sub.df %>% 
+  photoperiod <- photoperiod_sub.df %>% 
     select(as.character(1:366)) %>% 
     select(as.character(GS_interval)) 
   
-  # Estimate phoperiod thresholds based on the maximum and minimum values of the growing season
+  # Estimate temperature & photoperiod thresholds based on the maximum and minimum values of the growing season
+  temp_min <- min(Tmean)
+  temp_max <- max(Tmean)
   photo_min <- min(photoperiod) 
   photo_max <- max(photoperiod) 
   
@@ -647,8 +648,8 @@ for(id_sub in ids) {
     VPD <- e_s-e_a
     iVPD <- VPD.fun(VPD, VPD_min, VPD_max)
     
-    # iOpt_temp: response to optimal temperature (Gompertz function)
-    iOpt <- temp_opt.fun(Tmean[,day])
+    # iOpt_temp: response to optimal temperature 
+    iOpt <- temp_opt.fun(Tmean[,day], temp_min, temp_max)
     
     # iPhoto: photoperiod response
     iPhoto <- photoperiod.fun(photoperiod[,day], photo_min, photo_max)
@@ -816,7 +817,7 @@ for(id_sub in ids) {
 # DataList[[9]] = phenology_soil_CO2_LAI data [DAY for leaf.out, pCO2, soil parameters, and LAI] 
 # Notes: pCO2 are monthly values and leaf area index (LAI) is the time-space, species-specific output from LPJ-GUESS v.4.1
 
-vn  <- c('Short-wave Radiation','Long-wave Radiation','Precipitation','Mean Temperature','Soil Moisture 0-10 cm','Soil Moisture 10-40 cm','Soil temperature')
+vn  <- c('Net Short-wave Radiation','Net Long-wave Radiation','Precipitation','Mean Temperature','Soil Moisture 0-10 cm','Soil Moisture 10-40 cm','Soil temperature')
 DataList <- replicate(length(vn),data.frame())
 for(i in 1:length(vn)) {
   data <- fread(paste0(vn[i],".csv"))
@@ -832,13 +833,51 @@ for(i in c(1:7,9)) {
 }
 
 # Add unique id for phenological observations
-DataList[[9]]$id  <- paste0(DataList[[8]]$PEP_ID,"_",DataList[[8]]$Species,"_",DataList[[8]]$YEAR)
+DataList[[9]]$id  <- paste0(DataList[[9]]$PEP_ID,"_",DataList[[9]]$Species,"_",DataList[[9]]$YEAR)
 
 # Add plant functional type label 
 # T-BL-SG: Temperate broad-leaved summergreen tree
 # B-NL-SG: Boreal needle-leaved summergreen tree
 DataList[[9]]$PFT <- "TBL" 
-DataList[[9]][which(DataList[[8]]$Species=="Larix decidua"),]$PFT <- "BNL"
+DataList[[9]][which(DataList[[9]]$Species=="Larix decidua"),]$PFT <- "BNL"
+
+# Add site-specific Y_crit to stop the summation of accumulated photosynthesis
+# Y_crit_site is the mean photoperiod at the leaf senescence date averaged per site
+DataList[[9]]$Y_crit_site = NA
+
+# Get all unique sites
+all_Sites = unique(DataList[[9]]$PEP_ID)
+Site = all_Sites[1]
+
+for (Site in all_Sites){
+  
+  # Subset according to site
+  pheno_sub.df = DataList[[9]] %>% 
+    filter(PEP_ID==Site)
+  
+  # Calculate the avreage date of leaf senescence per site
+  pheno_sub.df$mean_leafoff_site <- round(mean(pheno_sub.df$DoY_off))
+  
+  # Calculate the average photoperiod for a site across years 
+  photo_leafoff_allyears <- vector()
+  
+  for(x in 1:nrow(pheno_sub.df)) { 
+    
+    # Convert Julian date to calendar date
+    current_year <- pheno_sub.df[x,]
+    current_year <- current_year %>% 
+      mutate(DoY_off_calendar = lubridate::make_date(YEAR) + DoY_off) 
+    
+    # Calculate daylength at the leaf senescence date for that year and species
+    photo_leafoff <- geosphere::daylength(current_year$LAT,current_year$DoY_off_calendar) 
+    photo_leafoff_allyears <- c(photo_leafoff_allyears,photo_leafoff)
+  }
+  Ycrit_site <- mean(photo_leafoff_allyears) 
+  
+  # Add Y_crit to the specific site
+  DataList[[9]]$Y_crit_site[DataList[[9]]$PEP_ID==Site] = Ycrit_site
+  print(paste0("Y_crit added for site ",Site))
+}
 
 ## Helper functions
 
@@ -923,7 +962,7 @@ for(id_sub in ids) {
   T_mean_sub.df = DataList[[4]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   SoilMoist_0_10.df = DataList[[5]] %>% 
-    filter(Tts_yr==pheno_sub.df$ts_yr)
+    filter(ts_yr==pheno_sub.df$ts_yr)
   SoilMoist_10_40.df = DataList[[6]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   T_soil_sub.df = DataList[[7]] %>% 
@@ -939,10 +978,11 @@ for(id_sub in ids) {
   # Starting of GS is DoY_off (future projection)
   DoY_out <- pheno_sub.df$DoY_out
   
-  # End of the GS is the first day below 11 hours after the beginning of the growing season
-  endGS_site <- photoperiod_sub.df %>% 
-    select(as.character(1:366)) 
-  endGS_site <- which(endGS_site<11)
+  # End of the GS is the first day below Y_crit_site after the beginning of the growing season 
+  # Y_crit_site is the mean photoperiod at the leaf senescence date averaged per site
+  endGS_site <- photoperiod_sub.df %>%
+    select(as.character(1:366))
+  endGS_site <- which(endGS_site_Ycrit<unique(pheno_sub.df$Y_crit_site))
   endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
   
   # Growing season
@@ -1001,7 +1041,7 @@ for(id_sub in ids) {
     # using the Lamber-Beer law to calculate the radiation reaching the soil (Rad_soil)
     # therefore, fapar is the remaining proportion
     # Eqn 27, Prentice et al. 1993
-    Rad_soil <- exp(-.5 * pheno.sub$LAI)
+    Rad_soil <- exp(-.5 * pheno_sub.df$LAI)
     fapar <- 1-Rad_soil
     apar <- fapar*par
 
