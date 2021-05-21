@@ -69,6 +69,40 @@ TPM.models = function(P_base, a, b, F_crit, data){
   
   return(doy)
 }
+TPM.Ycrit = function(data, P_base, a, b, stop){
+  
+  # create forcing/chilling rate vector at the day level
+  Rf = 1/(1+exp(a*(data$Tmini*data$Li-b)))
+  
+  # photoperiod-dependent start-date for chilling accumulation (t0)
+  # t0 is defined as the first day when photoperiod is shorter than the photoperiod threshold (P_base)
+  # after the date of the longest photoperiod (summer solstice), namely, the 173rd day of year
+  t0 <- vector()
+  for(c in 1:ncol(data$Tmini)) {
+    interval = 1:366
+    t0A = interval[which(data$Li[,c] < P_base)]
+    ind1 = min(which(t0A > 173))
+    t0A = t0A[ind1]
+    t0 = c(t0,t0A)
+  }
+  
+  # nullify values before the t0
+  for(c in 1:ncol(data$Tmini)){
+    Rf[1:t0[c],c] = 0 #nullify values before the date of leaf.out
+  }
+  
+  # add observed leaf-off dates at the end of the matrix-column
+  Rf = rbind(Rf,stop)
+  
+  # calculate the summation along the year and derive the date of leaf.off
+  # DOY of budburst criterium
+  F_crit = apply(Rf,2, function(xt){
+    F_crit = cumsum(xt[1:366])[xt[367]]
+    return(F_crit)
+  })
+  
+  return(F_crit)
+}
 SecondGen_PIA.models = function(par, predictor, data) {
   # exit the routine as some parameters are missing
   if (length(par) != 5 & length(par) != 6){
@@ -268,22 +302,20 @@ for(sp in 1:length(species)) {
     # TPM model
     future_proj.sub$DoY.off_TPM  <- TPM.models(P_base=opt_pars.sub$Pbase_TPM, a=opt_pars.sub$a_TPM, b=opt_pars.sub$b_TPM, F_crit=opt_pars.sub$Fcrit_TPM, data=data.sub)
 
+    # Estimate future Ycrit with TPM parameters (best First-Generation model)
+    Y_crit <- TPM.Ycrit(data=data.sub, P_base=opt_pars.sub$Pbase_TPM, a=opt_pars.sub$a_TPM, b=opt_pars.sub$b_TPM, stop=future_proj.sub$DoY.off_TPM)
+    
     # SIAM model
-    pars_SIAM = opt_pars.sub[,grep("_SIAM",colnames(opt_pars.sub))]
-    future_proj.sub$DoY.off_SIAM  <- SecondGen_PIA.models(par=pars_SIAM, predictor=data.sub$doy, data=data.sub)
+    future_proj.sub$DoY.off_SIAM  <- opt_pars.sub$a_SIAM + opt_pars.sub$b_SIAM*Y_crit + opt_pars.sub$c_SIAM*data.sub$doy
 
     # TPDM model
-    pars_TPDM = opt_pars.sub[,grep("_TPDM",colnames(opt_pars.sub))]
-    future_proj.sub$DoY.off_TPDM  <- SecondGen_PIA.models(par=pars_TPDM, predictor=c(preds.sub$GST,preds.sub$RD_summer), data=data.sub)
+    future_proj.sub$DoY.off_TPDM  <- opt_pars.sub$a_TPDM + opt_pars.sub$b_TPDM*Y_crit + opt_pars.sub$c_TPDM*preds.sub$GST + opt_pars.sub$a_TPDM*preds.sub$RD_summer
 
     # PIA_gsi model
-    pars_PIA_gsi = opt_pars.sub[,grep("_PIA_gsi",colnames(opt_pars.sub))]
-    future_proj.sub$DoY.off_PIA_gsi <- SecondGen_PIA.models(par=pars_PIA_gsi, predictor=preds.sub$cGSI, data=data.sub)
+    future_proj.sub$DoY.off_PIA_gsi <- opt_pars.sub$a_PIAgsi + opt_pars.sub$b_PIAgsi*Y_crit + opt_pars.sub$c_PIAgsi*preds.sub$cGSI
 
     # PIA+ model
-    `pars_PIA+` = opt_pars.sub[,grep("_PIA+",colnames(opt_pars.sub))]
-    `pars_PIA+` = `pars_PIA+`[11:15]
-    future_proj.sub$`DoY.off_PIA+`  <- SecondGen_PIA.models(par=`pars_PIA+`, predictor=preds.sub$cA_tot, data=data.sub)
+    future_proj.sub$`DoY.off_PIA+`  <- opt_pars.sub$`a_PIA+` + opt_pars.sub$`b_PIA+`*Y_crit + opt_pars.sub$`c_PIA+`*preds.sub$cA_tot
 
     ## Future Growing Season Length (GSL)
     future_proj.sub$GSL_CDD <- future_proj.sub$DoY.off_CDD - data.sub$doy

@@ -11,11 +11,8 @@ setwd(".../AutumnPhenology/AutumnPhenology_Models&Analyses/Data/")
 # Load libraries
 library(data.table)
 library(tidyverse)
+devtools::install_github("bluegreen-labs/phenor@v1.0")
 library(phenor)
-library(car)
-library(Metrics)
-library(broom)
-library(dismo)
 
 
 ##----------------------------------------
@@ -194,6 +191,40 @@ TPM.model = function(par, data){
   
   return(doy)
 }
+Ycrit = function(data, P_base, a, b){
+  
+  # create forcing/chilling rate vector at the day level
+  Rf = 1/(1+exp(a*(data$Tmini*data$Li-b)))
+  
+  # photoperiod-dependent start-date for chilling accumulation (t0)
+  # t0 is defined as the first day when photoperiod is shorter than the photoperiod threshold (P_base)
+  # after the date of the longest photoperiod (summer solstice), namely, the 173rd day of year
+  t0 <- vector()
+  for(c in 1:ncol(data$Tmini)) {
+    interval = 1:366
+    t0A = interval[which(data$Li[,c] < P_base)]
+    ind1 = min(which(t0A > 173))
+    t0A = t0A[ind1]
+    t0 = c(t0,t0A)
+  }
+  
+  # nullify values before the t0
+  for(c in 1:ncol(data$Tmini)){
+    Rf[1:t0[c],c] = 0 #nullify values before the date of leaf.out
+  }
+  
+  # add observed leaf-off dates at the end of the matrix-column
+  Rf = rbind(Rf,data$transition_dates)
+  
+  # calculate the summation along the year and derive the date of leaf.off
+  # DOY of budburst criterium
+  F_crit = apply(Rf,2, function(xt){
+    F_crit = cumsum(xt[1:366])[xt[367]]
+    return(F_crit)
+  })
+  
+  return(F_crit)
+}
 SecondGen_PIA.models = function(par, predictor, data) {
   # exit the routine as some parameters are missing
   if (length(par) != 5 & length(par) != 6){
@@ -284,8 +315,9 @@ preds.df <- all.df %>%
 # Minimum temperature and photoperiod
 tmin.df <- fread("Minimum Temperature.csv")
 photo.df <- fread("Photoperiod.csv")
-tmin.df$ts_yr <- paste0(tmin.df$PEP_ID,"_",tmin.df$YEAR)
-photo.df$ts_yr <- paste0(photo.df$PEP_ID,"_",photo.df$YEAR)
+tmin.df$ts_yr <- paste0(tmin.df$LAT,"_",tmin.df$YEAR)
+photo.df$ts_yr <- paste0(photo.df$LAT,"_",photo.df$YEAR)
+pheno.df$ts_yr <- paste0(pheno.df$LAT,"_",pheno.df$YEAR) 
 
 # Define model names
 models   <- c("CDD","DM1","DM2","TPM","SIAM","TDM","TPDM","PIA_gsi","PIA-","PIA+")
@@ -298,11 +330,15 @@ timeseries <- unique(pheno.df$timeseries)
 
 # Prepare input datasets for PHENOR package
 tmin.df <- tmin.df %>% 
-  select(-c(YEAR,PEP_ID,LAT,LON))
+  dplyr::select(-c(YEAR,PEP_ID,LAT,LON))
 photo.df <- photo.df %>% 
-  select(-c(YEAR,PEP_ID,LAT))
-phenor_input <- merge(tmin.df,photo.df,by="ts_yr")
-phenor_input <- merge(pheno.df,input,by="ts_yr")
+  dplyr::select(-c(YEAR,LAT))
+phenor_input <- merge(tmin.df,photo.df,by="ts_yr") %>% 
+  dplyr::filter(ts_yr %in% pheno.df$ts_yr)
+phenor_input <- phenor_input %>% 
+  left_join(pheno.df,.,by="ts_yr")
+phenor_input$id <- paste0(phenor_input$PEP_ID,"_",phenor_input$Species,phenor_input$YEAR)
+phenor_input <- phenor_input[!duplicated(phenor_input$id),]
 rm(all.df,pheno.df,tmin.df,photo.df)
 
 # Create a DataList to store all subsets for each species
@@ -378,10 +414,32 @@ for(sp in 1:length(species)) {
     preds.sub <- preds.df %>% 
       filter(timeseries==ts)
     
+    # Calculate site anomalies
+    preds.sub$DoY_out_anomaly <- preds.sub$DoY - mean(preds.sub$DoY)
+    preds.sub$temp_GS_anomaly <- preds.sub$temp_GS - mean(preds.sub$temp_GS)
+    preds.sub$RD_summer_anomaly <- preds.sub$RD_summer - mean(preds.sub$RD_summer)
+    preds.sub$cGSI_anomaly <- preds.sub$cGSI - mean(preds.sub$cGSI)
+    preds.sub$cA_tot_anomaly <- preds.sub$cA_tot - mean(preds.sub$cA_tot)
+    preds.sub$`cA_tot-w_anomaly` <- preds.sub$`cA_tot-w` - mean(preds.sub$`cA_tot-w`)
+    
+    # Scale them
+    preds.sub$DoY_out_anomaly <- scales::rescale(preds.sub$DoY_out_anomaly, to = c(0, 1.25))
+    preds.sub$temp_GS_anomaly <- scales::rescale(preds.sub$temp_GS_anomaly, to = c(0, 1.25))
+    preds.sub$RD_summer_anomaly <- scales::rescale(preds.sub$RD_summer_anomaly, to = c(0, 1.25))
+    preds.sub$cGSI_anomaly <- scales::rescale(preds.sub$cGSI_anomaly, to = c(0, 1.25))
+    preds.sub$cA_tot_anomaly <- scales::rescale(preds.sub$cA_tot_anomaly, to = c(0, 1.25))
+    preds.sub$`cA_tot-w_anomaly` <- scales::rescale(preds.sub$`cA_tot-w_anomaly`, to = c(0, 1.25))
+    
     # Initialize sub-dataframes to store results
-    DoYoff_Preds.sub <- data.frame(timeseries=data.sub$site, Species=species[sp], YEAR=dat.sub$year)
+    DoYoff_Preds.sub <- data.frame(timeseries=data.sub$site, 
+                                   PEP_ID=strsplit(unique(data.sub$site),"_")[[1]][1],
+                                   Species=species[sp], 
+                                   YEAR=data.sub$year)
     DoYoff_Preds.sub$Obs_DoYoff <- data.sub$transition_dates
-    opt_pars.sub <- data.frame(timeseries=data.sub$site, Species=species[sp], PEP_ID=sites)
+    opt_pars.sub <- data.frame(timeseries=unique(data.sub$site), 
+                               PEP_ID=strsplit(unique(data.sub$site),"_")[[1]][1],
+                               Species=species[sp])
+    
     
     ## Parameter optimization and Prediction of leaf senescence dates
     # PHENOR package (Hufkenset al., 2018)
@@ -394,7 +452,7 @@ for(sp in 1:length(species)) {
                                         method = "GenSA",
                                         lower = c(15,-3000),
                                         upper = c(30,0),
-                                        control = list(max.call = 40000))
+                                        control = list(max.call = 160000))
     opt_pars.sub$Tbase_CDD <- optimal_pars[1]
     opt_pars.sub$Fcrit_CDD <- optimal_pars[2]
     DoYoff_Preds.sub$Pred_DoYoff_CDD <- estimate_phenology(par = optimal_pars$par,
@@ -409,7 +467,7 @@ for(sp in 1:length(species)) {
                                         method = "GenSA",
                                         lower = c(15,11,-2000),
                                         upper = c(30,16,0),
-                                        control = list(max.call = 40000))
+                                        control = list(max.call = 160000))
     opt_pars.sub$Tbase_DM1 <- optimal_pars[1]
     opt_pars.sub$Pbase_DM1 <- optimal_pars[2]
     opt_pars.sub$Fcrit_DM1 <- optimal_pars[3]
@@ -425,7 +483,7 @@ for(sp in 1:length(species)) {
                                         method = "GenSA",
                                         lower = c(15,11,-2000),
                                         upper = c(30,16,0),
-                                        control = list(max.call = 40000))
+                                        control = list(max.call = 160000))
     opt_pars.sub$Tbase_DM2 <- optimal_pars[1]
     opt_pars.sub$Pbase_DM2 <- optimal_pars[2]
     opt_pars.sub$Fcrit_DM2 <- optimal_pars[3]
@@ -441,7 +499,7 @@ for(sp in 1:length(species)) {
                                         method = "GenSA",
                                         lower = c(11,0.02,100,0),
                                         upper = c(16,0.1,250,200),
-                                        control = list(max.call = 40000))
+                                        control = list(max.call = 160000))
     opt_pars.sub$Pbase_TPM <- optimal_pars[1]
     opt_pars.sub$a_TPM <- optimal_pars[2]
     opt_pars.sub$b_TPM <- optimal_pars[3]
@@ -450,126 +508,52 @@ for(sp in 1:length(species)) {
                                                            data = data.sub,
                                                            model = "TPM.model")
     
+    # Calculate Y_crit with fitted TPM parameters (best First-Generation model)
+    Y_crit <- Ycrit(data=data.sub, P_base=best_pars[1], a=best_pars[2], b=best_pars[3])
+    
     ## SIAM model
-    optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = preds.sub$DoY_out,
-                                        data = data.sub,
-                                        cost = rmse,
-                                        model = "SecondGen_PIA.models",
-                                        method = "GenSA",
-                                        lower = c(11,0.02,100,0,0),
-                                        upper = c(16,0.1,250,300,1),
-                                        control = list(max.call = 40000))
-    opt_pars.sub$Pbase_SIAM <- optimal_pars[1]
-    opt_pars.sub$a_SIAM <- optimal_pars[2]
-    opt_pars.sub$b_SIAM <- optimal_pars[3]
-    opt_pars.sub$c_SIAM <- optimal_pars[4]
-    opt_pars.sub$d_SIAM <- optimal_pars[5]
-    DoYoff_Preds.sub$Pred_DoYoff_SIAM <- estimate_phenology(par = optimal_pars$par,
-                                                            predictor = preds.sub$DoY_out,
-                                                            data = data.sub,
-                                                            model = "SecondGen_PIA.models")
+    fit <- lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$DoY_out_anomaly)
+    opt_pars.sub$a_SIAM <- fit[[1]][1]
+    opt_pars.sub$b_SIAM <- fit[[1]][2]
+    opt_pars.sub$c_SIAM <- fit[[1]][3]
+    DoYoff_Preds.sub$Pred_DoYoff_SIAM <- round(predict(lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$DoY_out_anomaly)))
     
     ## TDM model
-    optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = preds.sub$temp_GS,
-                                        data = data.sub,
-                                        cost = rmse,
-                                        model = "SecondGen_PIA.models",
-                                        method = "GenSA",
-                                        lower = c(11,0.02,100,0,0),
-                                        upper = c(16,0.1,250,300,1),
-                                        control = list(max.call = 40000))
-    opt_pars.sub$Pbase_TDM <- optimal_pars[1]
-    opt_pars.sub$a_TDM <- optimal_pars[2]
-    opt_pars.sub$b_TDM <- optimal_pars[3]
-    opt_pars.sub$c_TDM <- optimal_pars[4]
-    opt_pars.sub$d_TDM <- optimal_pars[5]
-    DoYoff_Preds.sub$Pred_DoYoff_TDM <- estimate_phenology(par = optimal_pars$par,
-                                                           predictor = preds.sub$temp_GS,
-                                                           data = data.sub,
-                                                           model = "SecondGen_PIA.models")
+    fit <- lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$temp_GS_anomaly)
+    opt_pars.sub$a_TDM <- fit[[1]][1]
+    opt_pars.sub$b_TDM <- fit[[1]][2]
+    opt_pars.sub$c_TDM <- fit[[1]][3]
+    DoYoff_Preds.sub$Pred_DoYoff_TDM <- round(predict(lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$temp_GS_anomaly)))
     
     ## TPDM model
-    optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = c(preds.sub$temp_GS,preds.sub$RD_summer),
-                                        data = data.sub,
-                                        cost = rmse,
-                                        model = "SecondGen_PIA.models",
-                                        method = "GenSA",
-                                        lower = c(11,0.02,100,0,0,0),
-                                        upper = c(16,0.1,250,300,1,1),
-                                        control = list(max.call = 40000))
-    opt_pars.sub$Pbase_TPDM <- optimal_pars[1]
-    opt_pars.sub$a_TPDM <- optimal_pars[2]
-    opt_pars.sub$b_TPDM <- optimal_pars[3]
-    opt_pars.sub$c_TDPM <- optimal_pars[4]
-    opt_pars.sub$d_TPDM <- optimal_pars[5]
-    opt_pars.sub$e_TPDM <- optimal_pars[6]
-    DoYoff_Preds.sub$Pred_DoYoff_TPDM <- estimate_phenology(par = optimal_pars$par,
-                                                            predictor = c(preds.sub$temp_GS,preds.sub$RD_summer),
-                                                            data = data.sub,
-                                                            model = "SecondGen_PIA.models")
+    fit <- lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$temp_GS_anomaly+preds.sub$RD_summer_anomaly)
+    opt_pars.sub$a_TPDM <- fit[[1]][1]
+    opt_pars.sub$b_TPDM <- fit[[1]][2]
+    opt_pars.sub$c_TDPM <- fit[[1]][3]
+    opt_pars.sub$d_TPDM <- fit[[1]][4]
+    DoYoff_Preds.sub$Pred_DoYoff_TPDM <- round(predict(lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$temp_GS_anomaly+preds.sub$RD_summer_anomaly)))
     
     ## PIA_gsi model
-    optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = preds.sub$cGSI,
-                                        data = data.sub,
-                                        cost = rmse,
-                                        model = "SecondGen_PIA.models",
-                                        method = "GenSA",
-                                        lower = c(11,0.02,100,0,0),
-                                        upper = c(16,0.1,250,300,1),
-                                        control = list(max.call = 40000))
-    opt_pars.sub$Pbase_PIAgsi <- optimal_pars[1]
-    opt_pars.sub$a_PIAgsi <- optimal_pars[2]
-    opt_pars.sub$b_PIAgsi <- optimal_pars[3]
-    opt_pars.sub$c_PIAgsi <- optimal_pars[4]
-    opt_pars.sub$d_PIAgsi <- optimal_pars[5]
-    DoYoff_Preds.sub$Pred_DoYoff_PIAgsi <- estimate_phenology(par = optimal_pars$par,
-                                                              predictor = preds.sub$cGSI,
-                                                              data = data.sub,
-                                                              model = "SecondGen_PIA.models")
+    fit <- lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$cGSI_anomaly)
+    opt_pars.sub$a_PIAgsi <- fit[[1]][1]
+    opt_pars.sub$b_PIAgsi <- fit[[1]][2]
+    opt_pars.sub$c_PIAgsi <- fit[[1]][3]
+    DoYoff_Preds.sub$Pred_DoYoff_PIAgsi <- round(predict(lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$cGSI_anomaly)))
     
     ## PIA- model
-    optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = preds.sub$`cA_tot-w`,
-                                        data = data.sub,
-                                        cost = rmse,
-                                        model = "SecondGen_PIA.models",
-                                        method = "GenSA",
-                                        lower = c(11,0.02,100,0,0),
-                                        upper = c(16,0.1,250,300,1),
-                                        control = list(max.call = 40000))
-    opt_pars.sub$`Pbase_PIA-` <- optimal_pars[1]
-    opt_pars.sub$`a_PIA-` <- optimal_pars[2]
-    opt_pars.sub$`b_PIA-` <- optimal_pars[3]
-    opt_pars.sub$`c_PIA-` <- optimal_pars[4]
-    opt_pars.sub$`d_PIA-` <- optimal_pars[5]
-    DoYoff_Preds.sub$`Pred_DoYoff_PIA-` <- estimate_phenology(par = optimal_pars$par,
-                                                              predictor = preds.sub$`cA_tot`,
-                                                              data = data.sub,
-                                                              model = "SecondGen_PIA.models")
+    fit <- lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$`cA_tot-w_anomaly`)
+    opt_pars.sub$`a_PIA-` <- fit[[1]][1]
+    opt_pars.sub$`b_PIA-` <- fit[[1]][2]
+    opt_pars.sub$`c_PIA-` <- fit[[1]][3]
+    DoYoff_Preds.sub$`Pred_DoYoff_PIA-` <- round(predict(lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$`cA_tot-w_anomaly`)))
     
     ## PIA+ model
-    optimal_pars <- optimize_parameters(par = NULL,
-                                        predictor = preds.sub$cA_tot,
-                                        data = data.sub,
-                                        cost = rmse,
-                                        model = "SecondGen_PIA.models",
-                                        method = "GenSA",
-                                        lower = c(11,0.02,100,0,0),
-                                        upper = c(16,0.1,250,300,1),
-                                        control = list(max.call = 40000))
-    opt_pars.sub$`Pbase_PIA+` <- optimal_pars[1]
-    opt_pars.sub$`a_PIA+` <- optimal_pars[2]
-    opt_pars.sub$`b_PIA+` <- optimal_pars[3]
-    opt_pars.sub$`c_PIA+` <- optimal_pars[4]
-    opt_pars.sub$`d_PIA+` <- optimal_pars[5]
-    DoYoff_Preds.sub$`Pred_DoYoff_PIA+` <- estimate_phenology(par = optimal_pars$par,
-                                                              predictor = preds.sub$cA_tot,
-                                                              data = data.sub,
-                                                              model = "SecondGen_PIA.models")
+    fit <- lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$cA_tot_anomaly)
+    opt_pars.sub$`a_PIA+` <- fit[[1]][1]
+    opt_pars.sub$`b_PIA+` <- fit[[1]][2]
+    opt_pars.sub$`c_PIA+` <- fit[[1]][3]
+    DoYoff_Preds.sub$`Pred_DoYoff_PIA+` <- round(predict(lm(DoYoff_Preds.sub$Obs_DoYoff~Y_crit+preds.sub$cA_tot_anomaly)))
+    
     
     # Autumn anomalies
     DoYoff_Preds.sub$meansite_DoYoff <- mean(data.sub$transition_dates)

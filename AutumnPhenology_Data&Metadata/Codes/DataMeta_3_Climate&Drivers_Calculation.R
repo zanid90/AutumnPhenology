@@ -6,7 +6,7 @@
 # Summary of seasonal photosynthesis calculation
 
 # Define directory paths
-setwd(".../AutumnPhenology/AutumnPhenology_Data&Metadata/Data/")
+setwd("F:/ClimateDatasets/")
 
 # Load libraries
 library(data.table)
@@ -19,28 +19,29 @@ library(tidyverse)
 ##----------------------------------------
 
 ##----------------------------------------
-## Spring phenology
+## Leaf phenology
 
 # Import locations
 stations <- fread("DataMeta_1_PhenologyObs_PEP725_Stations.csv")
 stations <- stations %>% 
     select(PEP_ID,LON,LAT)
 
-# Import dataset and select spring phenology
+# Import phenology dataset 
 pheno.df <- fread("DataMeta_2_PhenologyObs_PEP725_CleanData.csv")
-pheno_out.df <- pheno.df %>% 
-    filter(phenology == "leaf.out") %>% 
-    select(timeseries,PEP_ID,Species,YEAR,DoY)
-pheno_out.df$ts_yr <- paste0(pheno_out.df$PEP_ID,"_",pheno_out.df$YEAR)
+pheno.df <- pheno.df %>% 
+  pivot_wider(-c(BBCH,MAD_ratio,mean_DoY,SD_DoY,timeseries_length),
+              names_from=phenology, values_from=DoY)
 
-# Add coordinates
-pheno_out.df <- merge(pheno_out.df,stations,by="PEP_ID")
+# Add coordinates and time-location identifier
+pheno.df <- merge(pheno.df,stations,by="PEP_ID")
+pheno.df$ts_yr <- paste0(pheno.df$PEP_ID,"_",pheno.df$YEAR)
 
 # Data wrangling
-pheno_out.df <- pheno_out.df %>% 
-    rename(DoY_out = DoY) %>%
-    select(timeseries, everything()) %>% 
-    arrange(-desc(timeseries))
+pheno.df <- pheno.df %>% 
+  rename(DoY_out = leaf.out) %>%
+  rename(DoY_off = leaf.off) %>% 
+  select(timeseries, everything()) %>% 
+  arrange(-desc(timeseries))
 
 
 ##----------------------------------------
@@ -106,7 +107,7 @@ for(row in 1:nrow(stations)) {
 }
 
 # Add soil parameters to the phenology dataset
-pheno_soil.df <- merge(pheno_out.df,soil_pars_ts.df,by="PEP_ID")
+pheno_soil.df <- merge(pheno.df,soil_pars_ts.df,by="PEP_ID")
 rm(list=setdiff(ls(), c("pheno_soil.df","main_folder")))
 
 # Unload libraries
@@ -171,6 +172,7 @@ for(yr in 1948:2015) {
 # Data wrangling 
 pheno_soil_co2.df <- pheno_soil_co2.df %>% 
   arrange(timeseries,YEAR)
+write.table(pheno_soil_co2.df,"Leaf phenology_soil_CO2.csv", sep=";", row.names=F)
 rm(list=setdiff(ls(), c("pheno_soil_co2.df", "model","main_folder")))
 
 
@@ -353,25 +355,76 @@ for(i in 1:length(vn)) {
   data$ts_yr <- paste0(data$PEP_ID,"_",data$YEAR)
   DataList[[i]] <- data
 }
-DataList[[5]] <- pheno_soil_co2.df
-DataList[[6]] <- photo.df
+DataList[[5]] <- fread("Leaf phenology_soil_CO2_LAI.csv")
+DataList[[6]] <- fread("Photoperiod.csv")
+
+# Add the time-point identifiers
+for(i in c(1:5)) {
+  DataList[[i]]$ts_yr  <- paste0(DataList[[i]]$PEP_ID,"_",DataList[[i]]$YEAR)
+}
+DataList[[5]]$lat_yr  <- paste0(DataList[[5]]$LAT,"_",DataList[[5]]$YEAR)
+DataList[[6]]$lat_yr  <- paste0(DataList[[6]]$LAT,"_",DataList[[6]]$YEAR)
+
+# Add site-specific Y_crit to stop the growing season summation 
+# Y_crit_site is the mean photoperiod at the leaf senescence date averaged per site
+DataList[[5]]$Y_crit_site = NA
+
+# Get all unique sites
+all_Sites = unique(DataList[[5]]$PEP_ID)
+
+for (Site in all_Sites){
+  
+  # Subset according to site
+  pheno_sub.df = DataList[[5]] %>% 
+    filter(PEP_ID==Site)
+  
+  # Calculate the avreage date of leaf senescence per site
+  pheno_sub.df$mean_leafoff_site <- round(mean(pheno_sub.df$DoY_off))
+  
+  # Calculate the average photoperiod for a site across years 
+  photo_leafoff_allyears <- vector()
+  
+  for(x in 1:nrow(pheno_sub.df)) { 
+    
+    # Convert Julian date to calendar date
+    current_year <- pheno_sub.df[x,]
+    current_year <- current_year %>% 
+      mutate(DoY_off_calendar = lubridate::make_date(YEAR) + DoY_off) 
+    
+    # Calculate daylength at the leaf senescence date for that year and species
+    photo_leafoff <- geosphere::daylength(current_year$LAT,current_year$DoY_off_calendar) 
+    photo_leafoff_allyears <- c(photo_leafoff_allyears,photo_leafoff)
+  }
+  Ycrit_site <- mean(photo_leafoff_allyears) 
+  
+  # Add Y_crit to the specific site
+  DataList[[5]]$Y_crit_site[DataList[[5]]$PEP_ID==Site] = Ycrit_site
+  print(paste0("Y_crit added for site ",Site))
+}
 
 # Initialize dataset 
 Factors.df <- data.frame()
 
 # Get all time-points
-timeseries_year <- unique(pheno_soil_co2.df$ts_yr)
+timeseries_year <- unique(DataList[[5]]$ts_yr)
 
 # Loop through all time-points
 for(ty in timeseries_year) {
   
   # Subset input data by time-point
-  pheno.sub <- DataList[[5]][which(DataList[[3]]$ts_yr==ty),]
-  T_mean.sub <- DataList[[1]][which(DataList[[1]]$ts_yr==ty),]
-  T_min.sub <- DataList[[2]][which(DataList[[2]]$ts_yr==ty),]
-  T_max.sub <- DataList[[3]][which(DataList[[1]]$ts_yr==ty),]
-  prec.sub <- DataList[[4]][which(DataList[[2]]$ts_yr==ty),]
-  photo.sub <- DataList[[6]][which(DataList[[6]]$lat_yr==pheno.sub$lat_yr),]
+  pheno.sub <- DataList[[5]] %>% 
+    filter(ts_yr==ty)
+  T_mean.sub <- DataList[[1]] %>% 
+    filter(ts_yr==ty)
+  T_min.sub <- DataList[[2]] %>% 
+    filter(ts_yr==ty)
+  T_max.sub <- DataList[[3]] %>% 
+    filter(ts_yr==ty)
+  prec.sub <- DataList[[4]] %>% 
+    filter(ts_yr==ty)
+  photo.sub <- DataList[[6]] %>% 
+    filter(lat_yr==unique(pheno.sub$lat_yr)) %>% 
+    as.data.frame()
   
   # Generate sub-dataframe to store results
   factors.sub <- pheno.sub %>% 
@@ -386,23 +439,32 @@ for(ty in timeseries_year) {
   # Calculate the monthly averages
   TMEAN <- T_mean.sub %>% 
     select(as.character(1:366))
+  TMIN <- T_min.sub %>% 
+    select(as.character(1:366))
   PRCP <- prec.sub %>% 
     select(as.character(1:366))
-  daily_vals <- data.frame(Tmean=as.numeric(TMEAN), Prec=as.numeric(PRCP), MONTH=0)
+  daily_vals <- data.frame(Tmean=as.numeric(TMEAN), Tmin=as.numeric(TMIN), Prec=as.numeric(PRCP), MONTH=0)
   daily_vals <- daily_vals[complete.cases(daily_vals),]
   daily_vals$MONTH <- lubridate::month(as.Date(days,origin=days[1]))
   
   # Order time-series
-  z  <- zoo(daily_vals, days)
+  z  <- zoo::zoo(daily_vals, days)
   
   # Go from daily values to mean monthly values 
   month <- function(x)format(x, '%Y-%m')
   monthly_vals <- as.data.frame(aggregate(z, by=month, FUN=mean))
 
   # Growing season GS
-  DoY_out <- pheno.sub$DoY_out
-  DoY_off <- pheno.sub$DoY_off
+  DoY_out <- round(mean(pheno.sub$DoY_out))
+  DoY_off <- round(mean(pheno.sub$DoY_off))
   GS_interval <- DoY_out:DoY_off
+
+  # End of the summation is the first day below Y_crit_site after the summer solstice
+  # Y_crit_site is the mean photoperiod at the leaf senescence date averaged per site
+  endGS_site_Ycrit <- photoperiod_sub.df %>%
+    select(as.character(1:366))
+  endGS_site_Ycrit <- which(endGS_site<unique(pheno_sub.df$Y_crit_site))
+  endGS_site_Ycrit <- endGS_site[which(endGS_site>172)][1]
 
   # Get the months of predicted leaf-out and leaf-off
   month_out <- lubridate::month(as.Date(DoY_out,origin=days[1]))
@@ -422,13 +484,13 @@ for(ty in timeseries_year) {
   # Calculate the average minimum temperature of the 2 months before leaf senescence
   temp_aut2 <- T_min.sub %>% 
     select(as.character(1:366)) %>% 
-    select(as.character((DoY_off-60):DoY_off))
+    select(as.character((DoY_off-60):endGS_site_Ycrit))
   factors.sub$temp_aut2 <- mean(as.numeric(temp_aut2))
 
   # Calculate the average minimum temperature of the 3 months before leaf senescence
-  temp_aut3 <- T_min.sub %>% 
-    select(as.character(1:366)) %>% 
-    select(as.character((DoY_off-90):DoY_off))
+  temp_aut3 <- T_min.sub %>%
+    select(as.character(1:366)) %>%
+    select(as.character((DoY_off-90):endGS_site_Ycrit))
   factors.sub$temp_aut3 <- mean(as.numeric(temp_aut3))
 
   # Calculate the number of rainy days of the whole year
@@ -465,9 +527,10 @@ for(ty in timeseries_year) {
     select(as.character(DoY_out:(DoY_out+60))) 
   factors.sub$FD_spring <- length(which(FD_spring<0))
   
-  print(paste0("RUN: ",pheno.sub$timeseries," => ",which(timeseries_year==ty)," OF ",length(timeseries_year)))
+  print(paste0("RUN: ",ty," => ",which(timeseries_year==ty)," OF ",length(timeseries_year)))
   Factors.df <- rbind(Factors.df,factors.sub)
 }
+write.table(Factors.df,"ClimaticDrivers.csv",sep=";",row.names = F)
 
 
 ##----------------------------------------
@@ -481,8 +544,8 @@ for(i in 1:length(vn)) {
   data <- as.data.frame(data)
   DataList[[i]] <- data
 }
-DataList[[4]] <- pheno_soil_co2.df
-DataList[[5]] <- photo.df
+DataList[[4]] <- fread("Leaf phenology_soil_CO2_LAI.csv")
+DataList[[5]] <- fread("Photoperiod.csv")
 
 # Add the time-point identifiers
 for(i in c(1:4)) {
@@ -582,8 +645,9 @@ for(id_sub in ids) {
   T_mean_sub.df = DataList[[3]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   photoperiod_sub.df = DataList[[5]] %>% 
-    filter(lat_yr==pheno_sub.df$lat_yr)
-  
+    filter(lat_yr==pheno_sub.df$lat_yr) %>% 
+    as.data.frame()
+    
   # Generate sub-dataframe to store results
   GSI.sub <- pheno_sub.df %>% 
     select(timeseries,Species,PEP_ID,YEAR)
@@ -598,17 +662,15 @@ for(id_sub in ids) {
   }
   
   # Calculate the growing season GS
-  # Starting of GS is DoY_off (future projection)
   DoY_out <- pheno_sub.df$DoY_out
-  
-  # End of the GS is the first day below 12 hours after the beginning of the growing season
-  endGS_site <- photoperiod_sub.df %>% 
-    select(as.character(1:366)) 
-  endGS_site <- which(endGS_site<11)
-  endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
-  
-  # Growing season
-  GS_interval <- DoY_out:endGS_site
+  DoY_off <- pheno.sub$DoY_off
+  GS_interval <- DoY_out:DoY_off
+
+  # End of the summation is the first day below 12 hours after the summer solstice
+  endGS_site_12h <- photoperiod_sub.df %>%
+    select(as.character(1:366))
+  endGS_site_12h <- which(endGS_site<12)
+  endGS_site_12h <- endGS_site[which(endGS_site>DoY_out)][1]
   
   # Subset climatic variables from the starting GS
   Tmax <- T_max_sub.df %>% 
@@ -662,16 +724,21 @@ for(id_sub in ids) {
     cVPD <- sum(iVPD_year)
     iGSI_year <- c(iGSI_year,iGSI)
     cGSI <- sum(iGSI_year)
+    if(day == endGS_site_12h)  {
+      cGSI_12h <- sum(iGSI_year)
+    }
   }
   
   # Store results
   GSI.sub$iVPD <- cVPD
   GSI.sub$cGSI <- cGSI
+  GSI.sub$cGSI_12h <- cGSI_12h
   
   # Bind final datasets
   GSI.df <- rbind(GSI.df,GSI.sub)
   print(paste0("COMPLETED: ",id_sub," => ",which(ids==id_sub)," OF ",length(ids)))
 }
+write.table(GSI.df,"cGSI_iVPD.csv",sep=";",row.names = F)
 
 
 ##----------------------------------------
@@ -679,7 +746,6 @@ for(id_sub in ids) {
 # ci = atmospheric CO2 concentration * Vapour Pressudre Deficit (VPD) function
 
 # Monthly atmoshperic CO2 concentration
-# AIC ETH dataset (1948-2014)
 # AIC ETH dataset (1948-2014)
 CO2_ETH.df <- fread("mole_fraction_of_carbon_dioxide_in_air_input.csv") %>%
   select(year,month,data_mean_nh) %>%
@@ -825,12 +891,16 @@ for(i in 1:length(vn)) {
   DataList[[i]] <- data
 }
 DataList[[8]] <- fread("Photoperiod.csv")
-DataList[[9]] <- pheno_soil_co2.df
+DataList[[9]] <- fread("Leaf phenology_soil_CO2_LAI.csv")
 
 # Add the time-point identifiers
 for(i in c(1:7,9)) {
   DataList[[i]]$ts_yr  <- paste0(DataList[[i]]$PEP_ID,"_",DataList[[i]]$YEAR)
 }
+
+# Add latitude-year identifier
+DataList[[8]]$lat_yr <- paste0(DataList[[8]]$LAT,"_",DataList[[8]]$YEAR)
+DataList[[9]]$lat_yr <- paste0(DataList[[9]]$LAT,"_",DataList[[9]]$YEAR)
 
 # Add unique id for phenological observations
 DataList[[9]]$id  <- paste0(DataList[[9]]$PEP_ID,"_",DataList[[9]]$Species,"_",DataList[[9]]$YEAR)
@@ -847,7 +917,6 @@ DataList[[9]]$Y_crit_site = NA
 
 # Get all unique sites
 all_Sites = unique(DataList[[9]]$PEP_ID)
-Site = all_Sites[1]
 
 for (Site in all_Sites){
   
@@ -916,7 +985,7 @@ alphaa              <- 0.5 # fraction of PAR assimilated at ecosystem level rela
 alphac3             <- 0.08 # intrinsic quantum efficiency of CO2 uptake in C3 plants
 lambdamc3           <- 0.8 # optimal (maximum) lambda in C3 plants
 cmass               <- 12.0 # atomic mass of carbon
-cq                  <- 2.04e-6 # conversion factor for solar radiation from J m-2 to mol m-2
+cq                  <- 4.6e-6 # conversion factor for solar radiation from J m-2 to mol m-2
 n0                  <- 7.15 # leaf N concentration (mg/g) not involved in photosynthesis
 m                   <- 25.0 # corresponds to parameter p in Eqn 28, Haxeltine & Prentice 1996
 t0c3                <- 250.0 # base temperature (K) in Arrhenius temperature response function for C3 plants
@@ -961,14 +1030,14 @@ for(id_sub in ids) {
     filter(ts_yr==pheno_sub.df$ts_yr)
   T_mean_sub.df = DataList[[4]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
-  SoilMoist_0_10.df = DataList[[5]] %>% 
+  SoilMoist_0_10_sub.df = DataList[[5]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
-  SoilMoist_10_40.df = DataList[[6]] %>% 
+  SoilMoist_10_40_sub.df = DataList[[6]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   T_soil_sub.df = DataList[[7]] %>% 
     filter(ts_yr==pheno_sub.df$ts_yr)
   photoperiod_sub.df = DataList[[8]] %>% 
-    filter(lat_yr==pheno_sub.df$lat_yr)
+    filter(lat_yr==unique(pheno_sub.df$lat_yr))
     
   # Generate sub-dataframe to store results
   photosynthesis_sub.df <- pheno_sub.df %>% 
@@ -978,12 +1047,12 @@ for(id_sub in ids) {
   # Starting of GS is DoY_off (future projection)
   DoY_out <- pheno_sub.df$DoY_out
   
-  # End of the GS is the first day below Y_crit_site after the beginning of the growing season 
+  # End of the GS is the first day below Y_crit_site after the summer solstice 
   # Y_crit_site is the mean photoperiod at the leaf senescence date averaged per site
   endGS_site <- photoperiod_sub.df %>%
     select(as.character(1:366))
-  endGS_site <- which(endGS_site_Ycrit<unique(pheno_sub.df$Y_crit_site))
-  endGS_site <- endGS_site[which(endGS_site>DoY_out)][1]
+  endGS_site <- which(endGS_site<unique(pheno_sub.df$Y_crit_site))
+  endGS_site <- endGS_site[which(endGS_site>172)][1]
   
   # Growing season
   GS_interval <- DoY_out:endGS_site
@@ -1012,7 +1081,8 @@ for(id_sub in ids) {
     select(as.character(GS_interval))
   photoperiod <- photoperiod_sub.df %>% 
     select(as.character(1:366)) %>% 
-    select(as.character(GS_interval)) 
+    select(as.character(GS_interval)) %>% 
+    as.data.frame()
   
   ## Daily Net Photosynthesis rate (dA_n) and water stress factor (dw) are calculated daily and then accumulated by summation
   dA_tot_year <- vector()
@@ -1043,7 +1113,6 @@ for(id_sub in ids) {
     # Eqn 27, Prentice et al. 1993
     Rad_soil <- exp(-.5 * pheno_sub.df$LAI)
     fapar <- 1-Rad_soil
-    apar <- fapar*par
 
     # Convert to J/m^-2 day: the power in watts (W) is equal to the energy in joules (J), divided by the time period in seconds (s): 
     # --> 1 Watt = 1 Joule/second, therefore j = W*86400
@@ -1233,6 +1302,7 @@ for(id_sub in ids) {
   photosynthesis.df  <- rbind(photosynthesis.df,photosynthesis_sub.df)
   print(paste0("COMPLETED: ",id_sub," => ",which(ids==id_sub)," OF ",length(ids)))
 }
+write.table(photosynthesis.df,"Photosynthesis.csv",sep=";",row.names = F)
 
 
 ##----------------------------------------
@@ -1275,6 +1345,7 @@ drivers.df$FD_spring <- Factors.df$FD_spring
 drivers.df$ci <- ci.df$ci
 drivers.df$iVPD <- GSI$iVPD
 drivers.df$cGSI <- GSI$cGSI
+drivers.df$cGSI_12h <- GSI$cGSI_12h
 drivers.df$`cA_tot-w` <- photosynthesis.cum$cA_tot
 drivers.df$cA_tot <- photosynthesis.cum$cA_totw
 
